@@ -1,0 +1,65 @@
+"""Exercise the real controller and spawned worker without manual dialogs."""
+import time
+from pathlib import Path
+
+import pytest
+from PySide6.QtCore import QUrl
+from PySide6.QtWidgets import QApplication, QFileDialog
+
+from reframe.app import Controller
+from reframe.media import binary, command
+
+
+def wait_for(app, condition, timeout=30):
+    deadline = time.monotonic() + timeout
+    while not condition():
+        app.processEvents()
+        if time.monotonic() > deadline:
+            raise AssertionError("Controller timed out")
+        time.sleep(.03)
+
+
+def test_controller_complete_and_repeat(tmp_path, monkeypatch):
+    import reframe.app as app_module
+    monkeypatch.setattr(app_module, "ROOT", tmp_path)
+    app = QApplication.instance() or QApplication([])
+    source = tmp_path / "source.mp4"
+    command([binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=25:d=0.8",
+             "-c:v", "libx264", str(source)])
+    target = tmp_path / "result.mp4"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **kw: (str(target), ""))
+    controller = Controller()
+    controller.loadSource(QUrl.fromLocalFile(str(source)).toString())
+    wait_for(app, lambda: not controller.state["loading"])
+    assert controller.info is not None, controller.state["error"]
+    controller.start()
+    assert controller.state["busy"], controller.state["error"]
+    wait_for(app, lambda: not controller.state["busy"])
+    assert controller.state["result"] == str(target), controller.state
+    assert target.exists()
+    target = tmp_path / "second.mp4"
+    controller.start()
+    wait_for(app, lambda: not controller.state["busy"])
+    assert controller.state["result"] == str(target), controller.state
+    controller.timer.stop()
+
+
+def test_controller_cancel_leaves_no_result(tmp_path, monkeypatch):
+    import reframe.app as app_module
+    monkeypatch.setattr(app_module, "ROOT", tmp_path)
+    app = QApplication.instance() or QApplication([])
+    source = tmp_path / "source.mp4"
+    command([binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "color=s=320x180:r=25:d=3",
+             "-c:v", "libx264", str(source)])
+    target = tmp_path / "cancelled.mp4"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **kw: (str(target), ""))
+    controller = Controller()
+    controller.loadSource(QUrl.fromLocalFile(str(source)).toString())
+    wait_for(app, lambda: not controller.state["loading"])
+    controller.start()
+    controller.cancel()
+    wait_for(app, lambda: not controller.state["busy"])
+    assert controller.state["stage"] == "Отменено", controller.state
+    assert not target.exists()
+    assert not list(tmp_path.glob(".reframe-*"))
+    controller.timer.stop()

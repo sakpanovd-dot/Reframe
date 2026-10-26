@@ -1,0 +1,9 @@
+{
+  "name": "YOLOX-s",
+  "release": "0.1.1rc0",
+  "url": "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_s.onnx",
+  "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+  "filename": "yolox_s.onnx",
+  "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+  "license": "Apache-2.0"
+}

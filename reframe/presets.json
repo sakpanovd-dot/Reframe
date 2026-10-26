@@ -1,0 +1,7 @@
+[
+  {"id":"9:16","title":"9:16","width":1080,"height":1920,"description":"Вертикальное"},
+  {"id":"16:9","title":"16:9","width":1920,"height":1080,"description":"Широкое"},
+  {"id":"1:1","title":"1:1","width":1080,"height":1080,"description":"Квадрат"},
+  {"id":"4:5","title":"4:5","width":1080,"height":1350,"description":"Портрет"},
+  {"id":"4:3","title":"4:3","width":1440,"height":1080,"description":"Классическое"}
+]

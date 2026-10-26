@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reframe-local"
+version = "0.1.0"
+description = "Local automatic video reframing"
+requires-python = ">=3.11,<3.14"
+dependencies = ["PySide6>=6.8,<7", "av>=14,<20", "onnxruntime>=1.20,<2", "opencv-python>=4.10,<6", "numpy>=2,<3", "scipy>=1.14,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+reframe = "reframe.app:main"
+reframe-cli = "reframe.cli:main"
+
+[tool.setuptools.package-data]
+reframe = ["qml/*.qml", "presets.json", "model.json"]
+
+[tool.setuptools.packages.find]
+include = ["reframe*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: actual video decoding and encoding"]
