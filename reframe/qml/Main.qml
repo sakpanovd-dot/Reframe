@@ -41,14 +41,18 @@ ApplicationWindow {
 
     MediaPlayer {
         id: player
-        source: window.s.previewUrl
+        objectName: "previewPlayer"
+        source: controller.previewSource
         videoOutput: video
         audioOutput: AudioOutput { volume: 0.7 }
         onSourceChanged: pause()
     }
     Connections {
         target: controller
-        function onChanged() { if (window.s.busy) player.pause() }
+        function onProcessingChanged() {
+            if (controller.processing && player.playbackState === MediaPlayer.PlayingState)
+                player.pause()
+        }
         function onCloseReady() { window.close() }
     }
 
@@ -83,7 +87,7 @@ ApplicationWindow {
                     radius: 16
                     color: "#090B0E"
                     border.color: drop.containsDrag ? window.accent : "#2A2E35"
-                    VideoOutput { id: video; anchors.fill: parent; anchors.margins: 10; fillMode: VideoOutput.PreserveAspectFit; visible: !!window.s.previewUrl }
+                    VideoOutput { id: video; objectName: "previewVideo"; anchors.fill: parent; anchors.margins: 10; fillMode: VideoOutput.PreserveAspectFit; visible: !!window.s.previewUrl }
                     ColumnLayout {
                         anchors.centerIn: parent; spacing: 16
                         visible: !window.s.previewUrl
@@ -93,7 +97,7 @@ ApplicationWindow {
                             Text { anchors.centerIn: parent; text: "+"; color: window.accent; font.pixelSize: 34 }
                         }
                         Text { Layout.alignment: Qt.AlignHCenter; text: window.s.loading ? "Проверяем видео…" : "Перетащите видео сюда"; color: "#E9ECF0"; font.pixelSize: 21; font.weight: Font.DemiBold }
-                        Text { Layout.alignment: Qt.AlignHCenter; text: "MP4, MOV, MKV, AVI · H.264 / H.265"; color: window.muted; font.pixelSize: 12 }
+                        Text { Layout.alignment: Qt.AlignHCenter; text: "MP4, MOV, MKV, WebM и другие видео"; color: window.muted; font.pixelSize: 12 }
                         ActionButton { Layout.alignment: Qt.AlignHCenter; text: "Выбрать видео"; enabled: !window.s.loading; onClicked: controller.chooseSource() }
                     }
                     DropArea {

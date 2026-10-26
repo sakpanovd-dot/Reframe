@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+from contextlib import closing
 from pathlib import Path
 
 from .contracts import Cancelled, ReframeError, VideoInfo
@@ -62,8 +63,6 @@ def probe(path: Path, cancel=None) -> VideoInfo:
     if not videos:
         raise ReframeError("В файле нет видеодорожки.")
     v = videos[0]
-    if v.get("codec_name") not in {"h264", "hevc"}:
-        raise ReframeError("В MVP поддерживаются видеокодеки H.264 и H.265. Выберите другой исходник.")
     if v.get("color_transfer") in {"smpte2084", "arib-std-b67"} or any(
         any(term in s.get("side_data_type", "").lower() for term in ("dovi", "mastering display", "hdr"))
         for s in v.get("side_data_list", [])
@@ -100,9 +99,26 @@ def probe(path: Path, cancel=None) -> VideoInfo:
     warnings = []
     if duration > 600 or min(width, height) > 1080 or max(width, height) > 1920:
         warnings.append("Видео выходит за проверенный диапазон 10 минут / 1080p. Обработка может занять больше времени.")
-    return VideoInfo(path, width, height, duration, fps, v["index"],
+    info = VideoInfo(path, width, height, duration, fps, v["index"],
                      audios[0]["index"] if audios else None, rotation, sar,
                      float(v.get("start_time", 0)), tuple(warnings))
+    # ffprobe and PyAV may use different FFmpeg builds. Verify with the decoder
+    # used by the processing pipeline instead of maintaining a codec whitelist.
+    check_cancel(cancel)
+    try:
+        with closing(frames(info, cancel, max_side=640)) as decoder:
+            next(decoder)
+    except Cancelled:
+        raise
+    except StopIteration as error:
+        raise ReframeError("В видеодорожке не удалось прочитать ни одного кадра.") from error
+    except Exception as error:
+        import logging
+        codec = v.get("codec_name") or "неизвестный"
+        logging.exception("Cannot decode first frame; codec=%s", codec)
+        raise ReframeError(f"Не удалось декодировать видео ({codec}). Файл может быть повреждён "
+                           "или для этого кодека нет подходящего декодера в установленной сборке.") from error
+    return info
 
 
 def frames(info: VideoInfo, cancel=None, max_side: int | None = None):
