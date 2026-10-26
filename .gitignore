@@ -1,0 +1,16 @@
+.venv/
+.tmp/
+.pytest_cache/
+__pycache__/
+*.egg-info/
+models/*.onnx
+models/*.part
+work/
+*.log
+settings.json
+pytest-cache-files-*/
+.env
+.env.*
+!.env.example
+dist/
+build/
