@@ -1,5 +1,6 @@
 """Exercise the real controller and spawned worker without manual dialogs."""
 import time
+import logging
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,34 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 
 from reframe.app import Controller
 from reframe.media import binary, command
+
+
+@pytest.mark.parametrize("error, expected", [
+    (PermissionError("access denied details"), "Нет доступа к видео"),
+    (RuntimeError("decoder failure details"), "work/reframe.log"),
+])
+def test_open_error_is_actionable_and_logged(tmp_path, monkeypatch, caplog, error, expected):
+    import reframe.app as app_module
+    monkeypatch.setattr(app_module, "ROOT", tmp_path)
+    app = QApplication.instance() or QApplication([])
+
+    def fail(*args):
+        raise error
+
+    monkeypatch.setattr(app_module, "probe", fail)
+    controller = Controller()
+    try:
+        with caplog.at_level(logging.ERROR):
+            controller.loadSource(QUrl.fromLocalFile(str(tmp_path / "source.mp4")).toString())
+            wait_for(app, lambda: not controller.state["loading"])
+        assert expected in controller.state["error"]
+        assert str(error) not in controller.state["error"]
+        assert str(error) in caplog.text
+        assert any(record.exc_info for record in caplog.records)
+        assert controller.info is None
+        assert not controller.state["busy"]
+    finally:
+        controller.timer.stop()
 
 
 def wait_for(app, condition, timeout=30):

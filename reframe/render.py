@@ -32,6 +32,11 @@ class Renderer:
             y = min(max(0, y), p.height - p.crop_height)
             crop = image[y:y + p.crop_height, x:x + p.crop_width]
             return cv2.resize(crop, size, interpolation=cv2.INTER_AREA)
+        fit = min(size[0] / image.shape[1], size[1] / image.shape[0], 1.)
+        fw, fh = max(1, round(image.shape[1] * fit)), max(1, round(image.shape[0] * fit))
+        # When the foreground covers the output, the blurred background is invisible.
+        if (fw, fh) == size:
+            return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
         # Blur a small cover image, then enlarge; the foreground is never enlarged.
         scale = max(size[0] / image.shape[1], size[1] / image.shape[0])
         cover_w, cover_h = round(image.shape[1] * scale), round(image.shape[0] * scale)
@@ -40,8 +45,6 @@ class Renderer:
         background = cv2.resize(tiny, (cover_w, cover_h))
         x, y = (cover_w - size[0]) // 2, (cover_h - size[1]) // 2
         background = (background[y:y + size[1], x:x + size[0]].astype(np.float32) * .65).astype(np.uint8)
-        fit = min(size[0] / image.shape[1], size[1] / image.shape[0], 1.)
-        fw, fh = max(1, round(image.shape[1] * fit)), max(1, round(image.shape[0] * fit))
         foreground = cv2.resize(image, (fw, fh), interpolation=cv2.INTER_AREA)
         x, y = (size[0] - fw) // 2, (size[1] - fh) // 2
         background[y:y + fh, x:x + fw] = foreground

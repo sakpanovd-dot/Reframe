@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import multiprocessing as mp
 import os
 from pathlib import Path
@@ -122,8 +123,14 @@ class Controller(QObject):
                 info = probe(Path(path), self.probe_cancel)
                 self.inspected.emit(info, "")
             except Exception as error:
-                self.inspected.emit(None, str(error) if isinstance(error, ReframeError)
-                                    else "Не удалось открыть видео. Проверьте файл и FFmpeg.")
+                logging.exception("Cannot inspect source video: %s", path)
+                if isinstance(error, ReframeError):
+                    message = str(error)
+                elif isinstance(error, PermissionError):
+                    message = "Нет доступа к видео. Проверьте права на файл или скопируйте его в доступную папку."
+                else:
+                    message = "Не удалось открыть видео. Проверьте файл и FFmpeg. Подробности — в work/reframe.log."
+                self.inspected.emit(None, message)
         threading.Thread(target=inspect, daemon=True).start()
 
     @Slot(object, str)
@@ -259,6 +266,10 @@ class Controller(QObject):
 
 def main():
     mp.freeze_support()
+    logdir = ROOT / "work"
+    logdir.mkdir(exist_ok=True)
+    logging.basicConfig(filename=logdir / "reframe.log", level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s", encoding="utf-8", force=True)
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setApplicationName("Reframe")
