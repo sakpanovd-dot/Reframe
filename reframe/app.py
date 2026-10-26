@@ -29,6 +29,8 @@ class Controller(QObject):
     changed = Signal()
     inspected = Signal(object, str)
     closeReady = Signal()
+    previewSourceChanged = Signal()
+    processingChanged = Signal()
 
     def __init__(self):
         super().__init__()
@@ -65,6 +67,14 @@ class Controller(QObject):
     def state(self):
         return self._state
 
+    @Property(QUrl, notify=previewSourceChanged)
+    def previewSource(self):
+        return QUrl(self._state["previewUrl"])
+
+    @Property(bool, notify=processingChanged)
+    def processing(self):
+        return self._state["busy"]
+
     @Property("QVariantList", constant=True)
     def formats(self):
         return [{"id": p.id, "label": p.title, "description": p.description,
@@ -75,14 +85,22 @@ class Controller(QObject):
         return [key.upper() for key in EXPORTERS]
 
     def update(self, **kwargs):
+        changes = {key: value for key, value in kwargs.items() if self._state.get(key) != value}
+        if not changes:
+            return
         self._state.update(kwargs)
         self.changed.emit()
+        if "previewUrl" in changes:
+            self.previewSourceChanged.emit()
+        if "busy" in changes:
+            self.processingChanged.emit()
 
     @Slot()
     def chooseSource(self):
         if self._state["busy"] or self._state["loading"]:
             return
-        path, _ = QFileDialog.getOpenFileName(None, "Выберите видео", "", "Видео (*.mp4 *.mov *.mkv *.avi);;Все файлы (*)")
+        path, _ = QFileDialog.getOpenFileName(None, "Выберите видео", "",
+                                             "Видео (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.mpg *.mpeg *.ts *.mts *.m2ts *.wmv *.flv *.ogv);;Все файлы (*)")
         if path:
             self.loadSource(QUrl.fromLocalFile(path).toString())
 

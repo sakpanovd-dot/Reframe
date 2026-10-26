@@ -37,6 +37,46 @@ def test_input_containers_and_hevc(tmp_path, container, codec):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("container,codec,extra", [
+    ("mp4", "libaom-av1", ["-cpu-used", "8"]),
+    ("webm", "libvpx-vp9", ["-deadline", "realtime", "-cpu-used", "8"]),
+    ("avi", "mpeg4", []),
+    ("mov", "prores_ks", ["-profile:v", "0"]),
+])
+def test_additional_decodable_codecs_are_accepted_and_exported(tmp_path, container, codec, extra):
+    source = tmp_path / ("source." + container)
+    make_video(source, extra=extra, codec=codec)
+    source_info = probe(source)
+    target = tmp_path / "result.mp4"
+    run(ExportRequest(source, target, cpu_only=True, fit_only=True), threading.Event())
+    assert abs(probe(target).duration - source_info.duration) <= 1 / source_info.fps
+    assert raw_probe(target)["streams"][0]["codec_name"] == "h264"
+
+
+def test_probe_rejects_real_decoder_failure(tmp_path, monkeypatch):
+    source = tmp_path / "broken-codec.mp4"
+    make_video(source)
+    def broken_frames(*a, **kw):
+        raise RuntimeError("Decoder unavailable")
+        yield
+    monkeypatch.setattr("reframe.media.frames", broken_frames)
+    with pytest.raises(ReframeError, match="декодировать видео.*h264"):
+        probe(source)
+
+
+def test_probe_propagates_cancellation_during_decode(tmp_path, monkeypatch):
+    from reframe.contracts import Cancelled
+    source = tmp_path / "cancelled.mp4"
+    make_video(source)
+    def cancelled_frames(*a, **kw):
+        raise Cancelled()
+        yield
+    monkeypatch.setattr("reframe.media.frames", cancelled_frames)
+    with pytest.raises(Cancelled):
+        probe(source)
+
+
+@pytest.mark.integration
 def test_audio_offset_is_preserved(tmp_path):
     source = tmp_path / "delayed.mp4"
     command([binary("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "color=s=320x180:r=25:d=2",
