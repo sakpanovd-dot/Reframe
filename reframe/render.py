@@ -64,9 +64,15 @@ class Renderer:
         if mode == "graphic":
             # Title cards and packshots sit on flat colour: continue their own
             # edges so the vertical frame looks designed, not letterboxed.
-            background = cv2.copyMakeBorder(foreground, y, size[1] - fh - y, x, size[0] - fw - x,
-                                            cv2.BORDER_REPLICATE)
-            background = cv2.GaussianBlur(background, (0, 0), max(3, size[0] / 40))
+            # Work at 1/8 size: the extended edges are smooth, and a full-size blur
+            # costs ~30x a crop frame.
+            k = 8
+            small = cv2.resize(foreground, (max(1, fw // k), max(1, fh // k)), interpolation=cv2.INTER_AREA)
+            sy, sx = y // k, x // k
+            small = cv2.copyMakeBorder(small, sy, max(0, size[1] // k - small.shape[0] - sy),
+                                       sx, max(0, size[0] // k - small.shape[1] - sx), cv2.BORDER_REPLICATE)
+            small = cv2.GaussianBlur(small, (0, 0), max(1., size[0] / 40 / k))
+            background = cv2.resize(small, size, interpolation=cv2.INTER_LINEAR)
             background[y:y + fh, x:x + fw] = foreground
             return background
         # Blur a small cover image, then enlarge; the foreground is never enlarged.
