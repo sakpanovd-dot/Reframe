@@ -1,5 +1,6 @@
 """Measure annotated containment and write diagnostic contact sheets."""
 import json
+import argparse
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -13,7 +14,12 @@ from reframe.render import Renderer
 
 def main():
     root = Path("work/samples")
-    data = json.loads((root / "diagnostics.json").read_text())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--diagnostics', type=Path, default=root / 'diagnostics.json')
+    parser.add_argument('--output', type=Path, default=root)
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+    data = json.loads(args.diagnostics.read_text(encoding='utf-8'))
     p = data["plan"]
     p["keyframes"] = [Keyframe(**k) for k in p["keyframes"]]
     plan = ReframePlan(**p)
@@ -31,11 +37,11 @@ def main():
             # Annotation encloses the photo crop, slightly larger than the actual subject.
             inside = x <= x1 + 8 and x2 - 8 <= x + plan.crop_width and y <= y1 + 8 and y2 - 8 <= y + plan.crop_height
             metric["contained"] += mode == "fit" or inside
-    (root / "quality.json").write_text(json.dumps(dict(result), indent=2))
+    (args.output / "quality.json").write_text(json.dumps(dict(result), indent=2))
     simple = {"single_person", "walking_person", "small_motion", "animal", "object"}
     checks = {"containment_at_least_95_percent": all(not m["visible"] or m["contained"] / m["visible"] >= .95 for m in result.values()),
               "simple_scenes_crop_at_least_70_percent": all(result[name]["crop"] / result[name]["frames"] >= .7 for name in simple)}
-    (root / "quality-summary.json").write_text(json.dumps(checks, indent=2))
+    (args.output / "quality-summary.json").write_text(json.dumps(checks, indent=2))
     print(json.dumps(dict(result), indent=2))
     tiles = []
     next_time = 1.5
@@ -59,7 +65,7 @@ def main():
         cv2.putText(tile, f"{scene} / {mode}", (8, 17), cv2.FONT_HERSHEY_SIMPLEX, .45, (230, 230, 230), 1)
         tiles.append(tile)
     sheet = np.vstack([np.hstack(tiles[i:i + 3]) for i in range(0, len(tiles), 3)])
-    cv2.imwrite(str(root / "contact-sheet.jpg"), sheet)
+    cv2.imwrite(str(args.output / "contact-sheet.jpg"), sheet)
     if not all(checks.values()):
         raise SystemExit("Quality gate failed; inspect quality.json and contact-sheet.jpg")
 

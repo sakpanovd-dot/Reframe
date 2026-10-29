@@ -97,8 +97,8 @@ def probe(path: Path, cancel=None) -> VideoInfo:
     audios = [s for s in data["streams"] if s["codec_type"] == "audio"]
     audios.sort(key=lambda s: -s.get("disposition", {}).get("default", 0))
     warnings = []
-    if duration > 600 or min(width, height) > 1080 or max(width, height) > 1920:
-        warnings.append("Видео выходит за проверенный диапазон 10 минут / 1080p. Обработка может занять больше времени.")
+    if duration > 300 or min(width, height) > 1080 or max(width, height) > 1920:
+        warnings.append("Видео выходит за целевой диапазон 5 минут / 1080p. Обработка может занять больше времени.")
     info = VideoInfo(path, width, height, duration, fps, v["index"],
                      audios[0]["index"] if audios else None, rotation, sar,
                      float(v.get("start_time", 0)), tuple(warnings))

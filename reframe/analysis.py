@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from contextlib import closing, nullcontext
 
-import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from .contracts import AnalysisResult, Detection, ProgressEvent, Sample
 from .media import frames, check_cancel
+from .scenes import SceneDetector, thumbnail, motion_boxes
 
 
 def iou(a, b) -> float:
@@ -53,25 +54,35 @@ class Tracker:
         return tracked
 
 
+def _with_following(info, cancel):
+    decoded = frames(info, cancel, max_side=640)
+    with closing(decoded) if hasattr(decoded, "close") else nullcontext(decoded):
+        current = next(decoded, None)
+        if current is None:
+            return
+        for following in decoded:
+            yield current, following
+            current = following
+        yield current, None
+
+
 def analyze(info, detector, cancel, emit) -> AnalysisResult:
     samples, tracker, scene = [], Tracker(), 0
     previous = None
+    boundaries = SceneDetector()
+    activity = []
     next_time = 0.0
-    for t, _, image in frames(info, cancel, max_side=640):
+    for (t, _, image), following in _with_following(info, cancel):
         check_cancel(cancel)
-        small = cv2.resize(image, (160, 90))
-        hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
-        histogram = cv2.calcHist([hsv], [0, 1], None, [32, 16], [0, 180, 0, 256])
-        cv2.normalize(histogram, histogram)
-        cut = False
-        if previous is not None:
-            diff = cv2.compareHist(previous[0], histogram, cv2.HISTCMP_BHATTACHARYYA)
-            pixel_diff = np.mean(np.abs(small.astype(float) - previous[1].astype(float))) / 255
-            if (diff > .65 and pixel_diff > .15) or pixel_diff > .42:
-                scene += 1
-                tracker = Tracker()
-                cut = True
-        previous = histogram, small
+        small = thumbnail(image)
+        cut = boundaries.update(small, thumbnail(following[2]) if following is not None else None)
+        if cut:
+            scene += 1
+            tracker = Tracker()
+            activity = []
+        else:
+            activity.extend(motion_boxes(previous, small))
+        previous = small
         if not cut and t + .001 < next_time:
             continue
         next_time = t + .2
@@ -79,7 +90,10 @@ def analyze(info, detector, cancel, emit) -> AnalysisResult:
         sx, sy = info.width / image.shape[1], info.height / image.shape[0]
         detected = [replace(o, box=(o.box[0] * sx, o.box[1] * sy, o.box[2] * sx, o.box[3] * sy)) for o in detected]
         objects = tracker.update(detected, t)
-        samples.append(Sample(t, scene, objects))
+        motion = [(x1 * info.width, y1 * info.height, x2 * info.width, y2 * info.height)
+                  for x1, y1, x2, y2 in activity]
+        samples.append(Sample(t, scene, objects, motion))
+        activity = []
         emit(ProgressEvent("Анализ видео", min(1, t / info.duration),
                            f"{detector.backend if detector else 'CPU'} · сцена {scene + 1}"))
     if not samples:

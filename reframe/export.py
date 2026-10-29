@@ -135,3 +135,13 @@ def verify(info, plan, path, cancel):
         if abs(float(audio[0].get("duration", 0)) - info.duration) > .1:
             raise ReframeError("Проверка результата: длительность звука отличается от видео.")
     check_cancel(cancel)
+    # Valid container metadata does not prove that all encoded packets are readable.
+    # Decode every selected stream before the pipeline publishes the temporary file.
+    try:
+        command([binary("ffmpeg"), "-hide_banner", "-v", "error", "-xerror",
+                 "-err_detect", "explode", "-threads", "2", "-i", str(path),
+                 "-map", "0:v:0", "-map", "0:a:0?", "-f", "null", "-"], cancel)
+    except ReframeError as error:
+        raise ReframeError("Проверка результата: не удалось полностью прочитать готовое видео или звук. "
+                           "Результат не сохранён; попробуйте повторить обработку.") from error
+    check_cancel(cancel)

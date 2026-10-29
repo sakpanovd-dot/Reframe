@@ -9,6 +9,40 @@ import numpy as np
 from .contracts import Keyframe, ReframePlan
 
 
+def same_aspect(width, height, preset):
+    """Exact display aspect match; includes probe's rotation and SAR correction."""
+    return width * preset.height == height * preset.width
+
+
+def excludes_activity(boxes, x, y, width, height, source_area):
+    for x1, y1, x2, y2 in boxes:
+        area = max(0, x2 - x1) * max(0, y2 - y1)
+        overlap = max(0, min(x2, x + width) - max(x1, x)) * max(0, min(y2, y + height) - max(y1, y))
+        if area >= source_area * .015 and overlap < area * .4:
+            return True
+    return False
+
+
+def unexplained_activity(nearby, selected, width, height):
+    subject = [obj.box for sample in nearby for obj in sample.objects if obj.track_id == selected]
+    if not subject:
+        return [box for sample in nearby for box in sample.motion_boxes]
+    # The motion mask includes both the old and the new location of a moving
+    # subject. Explain that swept area before looking for independent activity.
+    x1 = min(b[0] for b in subject) - width * .03
+    y1 = min(b[1] for b in subject) - height * .03
+    x2 = max(b[2] for b in subject) + width * .03
+    y2 = max(b[3] for b in subject) + height * .03
+    result = []
+    for sample in nearby:
+        for a, b, c, d in sample.motion_boxes:
+            area = max(0, c - a) * max(0, d - b)
+            overlap = max(0, min(c, x2) - max(a, x1)) * max(0, min(d, y2) - max(b, y1))
+            if overlap < area * .4:
+                result.append((a, b, c, d))
+    return result
+
+
 def dimensions(width, height, preset):
     # Exact aspect ratio AND even dimensions; never enlarge the crop.
     divisor = gcd(preset.width, preset.height)
@@ -40,9 +74,9 @@ def make_plan(analysis, preset) -> ReframePlan:
         crop_active = False
         scene_keys = []
         safety_boxes = {}
-        for s in samples:
+        for sample_index, s in enumerate(samples):
             if same_ratio:
-                scene_keys.append(Keyframe(s.time, scene, "crop", (w - cw) / 2, (h - ch) / 2))
+                scene_keys.append(Keyframe(s.time, scene, "crop", (w - cw) / 2, (h - ch) / 2, "same_ratio"))
                 continue
             ranked = []
             for obj in s.objects:
@@ -68,12 +102,14 @@ def make_plan(analysis, preset) -> ReframePlan:
             elif not ranked and last_box is not None and s.time - last_seen <= .4:
                 box = last_box + velocity * (s.time - last_seen)
             safe = box is not None and box[2] - box[0] <= cw * .88 and box[3] - box[1] <= ch * .88
+            reason = "ambiguous" if ambiguous else "no_subject" if box is None else "subject_too_large"
             if safe:
                 if pending_id != selected:
                     pending_id, stable_since = selected, s.time
                     crop_active = False
                 if s.time - stable_since >= .4 - 1e-6:
                     crop_active = True
+                reason = "tracking" if crop_active else "stabilizing"
                 target = (box[:2] + box[2:]) / 2
                 delta = target - center
                 deadzone = np.array([cw, ch]) * .12
@@ -83,10 +119,19 @@ def make_plan(analysis, preset) -> ReframePlan:
                 high = box[:2] - np.array([cw, ch]) * .06 + np.array([cw, ch]) / 2
                 center = np.clip(center, low, high)
                 center = np.clip(center, [cw / 2, ch / 2], [w - cw / 2, h - ch / 2])
+                # Independent image motion can contradict a confident but false
+                # semantic detection. Look on both sides within this scene so
+                # held animation frames do not repeatedly re-enable a bad crop.
+                nearby = [other for other in samples[max(0, sample_index - 2):sample_index + 3]
+                          if abs(other.time - s.time) <= .5]
+                nearby_motion = unexplained_activity(nearby, selected, w, h)
+                if excludes_activity(nearby_motion, center[0] - cw / 2, center[1] - ch / 2, cw, ch, w * h):
+                    crop_active, pending_id = False, None
+                    reason = "motion_outside_crop"
             else:
                 crop_active, pending_id = False, None
             scene_keys.append(Keyframe(s.time, scene, "crop" if crop_active else "fit",
-                                       float(center[0] - cw / 2), float(center[1] - ch / 2)))
+                                       float(center[0] - cw / 2), float(center[1] - ch / 2), reason))
             if crop_active and box is not None:
                 safety_boxes[s.time] = np.array(box)
         # Smooth only within uninterrupted crop runs; never across scene cuts or fit sections.
@@ -96,6 +141,7 @@ def make_plan(analysis, preset) -> ReframePlan:
                 neighbors = run[max(0, i - 1):i + 2]
                 position = np.array([np.mean([k.x for k in neighbors]), np.mean([k.y for k in neighbors])])
                 mode = key.mode
+                reason = key.reason
                 boxes = [safety_boxes[k.time] for k in neighbors if k.time in safety_boxes]
                 if mode == "crop" and boxes:
                     # Constrain smoothing to a safe envelope covering adjacent detections.
@@ -106,9 +152,10 @@ def make_plan(analysis, preset) -> ReframePlan:
                     high = np.minimum(high, [w - cw, h - ch])
                     if np.any(low > high):
                         mode = "fit"
+                        reason = "fast_motion"
                     else:
                         position = np.clip(position, low, high)
-                keys.append(Keyframe(key.time, key.scene, mode, float(position[0]), float(position[1])))
+                keys.append(Keyframe(key.time, key.scene, mode, float(position[0]), float(position[1]), reason))
     # Unsafe motion can introduce short fit gaps after smoothing. Require a stable
     # crop candidate again, and remove brief crop islands to avoid mode flicker.
     stable_keys = []
@@ -120,10 +167,11 @@ def make_plan(analysis, preset) -> ReframePlan:
             if key.mode == "fit":
                 last_fit = key.time
             mode = key.mode if key.time - last_fit >= .4 - 1e-6 else "fit"
-            stabilized.append(Keyframe(key.time, key.scene, mode, key.x, key.y))
+            stabilized.append(Keyframe(key.time, key.scene, mode, key.x, key.y,
+                                       key.reason if mode == key.mode else "cooldown"))
         for mode, iterator2 in groupby(stabilized, lambda k: k.mode):
             run = list(iterator2)
             if mode == "crop" and len(run) > 0 and run[-1].time - run[0].time < .4 - 1e-6 and not same_ratio:
-                run = [Keyframe(k.time, k.scene, "fit", k.x, k.y) for k in run]
+                run = [Keyframe(k.time, k.scene, "fit", k.x, k.y, "short_crop") for k in run]
             stable_keys.extend(run)
     return ReframePlan(w, h, cw, ch, ow, oh, stable_keys)

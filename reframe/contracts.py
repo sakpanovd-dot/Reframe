@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -40,6 +40,7 @@ class Sample:
     time: float
     scene: int
     objects: list[Detection]
+    motion_boxes: list[tuple[float, float, float, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -58,6 +59,7 @@ class Keyframe:
     mode: str  # crop / fit
     x: float
     y: float
+    reason: str = ""
 
 
 @dataclass

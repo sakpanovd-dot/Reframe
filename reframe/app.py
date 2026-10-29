@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+
 import logging
 import multiprocessing as mp
 import os
@@ -22,6 +23,8 @@ from .export import EXPORTERS
 from .media import CREATE_FLAGS, probe
 from .pipeline import worker, validate_destination
 from .presets import load_presets
+from .planner import same_aspect
+from .local_state import read_settings, save_settings, configure_logging
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,7 +42,7 @@ class Controller(QObject):
                        "metadata": "", "warning": "", "busy": False, "loading": False,
                        "stage": "Готов к работе", "detail": "", "progress": 0., "elapsed": "",
                        "error": "", "result": "", "preset": "9:16", "container": "mp4",
-                       "cancelling": False}
+                       "cancelling": False, "reviewPath": "", "reviewCount": 0, "reviewError": ""}
         self.presets = load_presets()
         self.info = None
         self.process = None
@@ -50,14 +53,11 @@ class Controller(QObject):
         self.started = 0.
         self.close_after_cancel = False
         self.probe_cancel = threading.Event()
-        try:
-            saved = json.loads((ROOT / "settings.json").read_text(encoding="utf-8"))
-            if saved.get("preset") in self.presets:
-                self._state["preset"] = saved["preset"]
-            if saved.get("container") in EXPORTERS:
-                self._state["container"] = saved["container"]
-        except (OSError, ValueError):
-            pass
+        saved = read_settings(ROOT / "settings.json")
+        if isinstance(saved.get("preset"), str) and saved["preset"] in self.presets:
+            self._state["preset"] = saved["preset"]
+        if isinstance(saved.get("container"), str) and saved["container"] in EXPORTERS:
+            self._state["container"] = saved["container"]
         self.inspected.connect(self._inspection_finished)
         self.timer = QTimer(self)
         self.timer.setInterval(100)
@@ -115,7 +115,7 @@ class Controller(QObject):
             return
         self.info = None
         self.probe_cancel.clear()
-        self.update(loading=True, error="", result="", stage="Проверка видео", source="", sourceUrl="",
+        self.update(loading=True, error="", result="", reviewPath="", reviewCount=0, reviewError="", stage="Проверка видео", source="", sourceUrl="",
                     previewUrl="", name="", metadata="", warning="", detail="")
 
         def inspect():
@@ -129,7 +129,7 @@ class Controller(QObject):
                 elif isinstance(error, PermissionError):
                     message = "Нет доступа к видео. Проверьте права на файл или скопируйте его в доступную папку."
                 else:
-                    message = "Не удалось открыть видео. Проверьте файл и FFmpeg. Подробности — в work/reframe.log."
+                    message = "Не удалось открыть видео. Проверьте файл и FFmpeg. Подробности — в work/reframe.log или консоли запуска."
                 self.inspected.emit(None, message)
         threading.Thread(target=inspect, daemon=True).start()
 
@@ -159,7 +159,7 @@ class Controller(QObject):
     def start(self):
         if not self.info or self._state["busy"]:
             return
-        if not model_path().exists():
+        if not same_aspect(self.info.width, self.info.height, self.presets[self._state["preset"]]) and not model_path().exists():
             self.update(error="Модель не установлена. Выполните python scripts/download_model.py из папки Reframe.")
             return
         ext = EXPORTERS[self._state["container"]].extension
@@ -180,13 +180,13 @@ class Controller(QObject):
                                               QMessageBox.StandardButton.No)
                 if answer != QMessageBox.StandardButton.Yes:
                     return
-            (ROOT / "settings.json").write_text(json.dumps({"preset": request.preset, "container": request.container}), encoding="utf-8")
+            save_settings(ROOT / "settings.json", {"preset": request.preset, "container": request.container})
             self.events, self.cancel_event = self.context.Queue(), self.context.Event()
             self.process = self.context.Process(target=worker, args=(request, self.cancel_event, self.events))
             self.terminal_received = False
             self.started = time.monotonic()
             self.process.start()
-            self.update(busy=True, cancelling=False, result="", error="", stage="Подготовка", detail="", progress=0, elapsed="0:00")
+            self.update(busy=True, cancelling=False, result="", reviewPath="", reviewCount=0, reviewError="", error="", stage="Подготовка", detail="", progress=0, elapsed="0:00")
         except Exception as error:
             self.update(error=str(error))
 
@@ -207,7 +207,7 @@ class Controller(QObject):
             self.process.join()
             self._drain_events()
             if not self.terminal_received:
-                self.update(stage="Ошибка", error="Процесс обработки неожиданно завершился. См. work/reframe.log.")
+                self.update(stage="Ошибка", error="Процесс обработки неожиданно завершился. См. work/reframe.log или консоль запуска.")
             self.process.close()
             self.process = None
             self.events.close()
@@ -225,15 +225,24 @@ class Controller(QObject):
             if event.kind == "progress":
                 if not self._state["cancelling"]:
                     self.update(stage=event.stage, progress=event.progress, detail=event.detail)
+            elif event.kind == 'review':
+                review = json.loads(event.detail)
+                self.update(reviewPath=review['path'], reviewCount=review['count'], reviewError=review['error'])
             else:
                 self.terminal_received = True
                 if event.kind == "done":
-                    self.update(stage="Готово", progress=1, result=event.detail,
-                                previewUrl=QUrl.fromLocalFile(event.detail).toString(), detail="Видео сохранено")
+                    self.update(stage="Готово", progress=1, result=event.detail, warning="",
+                                previewUrl=QUrl.fromLocalFile(event.detail).toString(),
+                                detail=self._state['reviewError'] or (f"Видео сохранено. Отмечено интервалов для проверки: {self._state['reviewCount']}." if self._state['reviewPath'] else "Видео сохранено"))
                 elif event.kind == "error":
                     self.update(stage="Не удалось создать видео", error=event.detail, detail="")
                 else:
                     self.update(stage="Отменено", detail="Исходное видео сохранено", progress=0)
+
+    @Slot()
+    def openReview(self):
+        if self._state['reviewPath']:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._state['reviewPath']))
 
     @Slot()
     def openResult(self):
@@ -266,10 +275,7 @@ class Controller(QObject):
 
 def main():
     mp.freeze_support()
-    logdir = ROOT / "work"
-    logdir.mkdir(exist_ok=True)
-    logging.basicConfig(filename=logdir / "reframe.log", level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s", encoding="utf-8", force=True)
+    configure_logging(ROOT)
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setApplicationName("Reframe")

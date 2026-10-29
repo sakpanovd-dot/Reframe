@@ -6,6 +6,7 @@ __pycache__/
 models/*.onnx
 models/*.part
 work/
+/user test/
 *.log
 settings.json
 pytest-cache-files-*/

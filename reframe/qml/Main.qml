@@ -197,7 +197,7 @@ ApplicationWindow {
                     }
                     Rectangle { visible: optionsScroll.availableHeight >= 360; Layout.fillWidth: true; height: 1; color: "#30343C" }
                     Text { visible: optionsScroll.availableHeight >= 360; text: "Всё остальное — автоматически"; color: "#D7DAE0"; font.weight: Font.DemiBold }
-                    Text { visible: optionsScroll.availableHeight >= 360; Layout.fillWidth: true; text: "Плавное слежение за главным объектом. Полный кадр с мягким фоном, если сцена неоднозначна."; color: window.muted; wrapMode: Text.WordWrap; font.pixelSize: 12; lineHeight: 1.35 }
+                    Text { visible: optionsScroll.availableHeight >= 360; Layout.fillWidth: true; text: "16:9 → 9:16 — вертикальная обрезка для монтажа. Спорные интервалы отмечаем в отчёте. Без устойчивого объекта сохраняем полный кадр."; color: window.muted; wrapMode: Text.WordWrap; font.pixelSize: 12; lineHeight: 1.35 }
                 }
                 }
                 ColumnLayout {
@@ -227,6 +227,7 @@ ApplicationWindow {
                     Text { visible: window.s.busy; text: Math.round(window.s.progress * 100) + "%"; color: window.accent }
                     ActionButton { visible: window.s.busy; text: "Отмена"; implicitHeight: 32; enabled: !window.s.cancelling; onClicked: controller.cancel() }
                     ActionButton { visible: !!window.s.result && !window.s.busy; text: "Открыть видео"; implicitHeight: 32; onClicked: controller.openResult() }
+                    ActionButton { visible: !!window.s.reviewPath && !window.s.busy; text: "Проверить интервалы"; implicitHeight: 32; onClicked: controller.openReview() }
                     ActionButton { visible: !!window.s.result && !window.s.busy; text: "Показать в папке"; implicitHeight: 32; onClicked: controller.showFolder() }
                 }
                 ProgressBar {

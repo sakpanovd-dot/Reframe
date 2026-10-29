@@ -62,8 +62,22 @@ class YoloXDetector:
             grids.append(np.stack([x, y], axis=-1).reshape(-1, 2))
             strides.append(np.full((x.size, 1), stride))
         self.grid, self.strides = np.concatenate(grids), np.concatenate(strides)
+        self._previous_image: np.ndarray | None = None
+        self._previous_objects: tuple[Detection, ...] = ()
 
     def detect(self, image: np.ndarray) -> list[Detection]:
+        # Only exact repeats are safe: approximate matches can hide a small
+        # moving subject. Own the pixels because decoders may reuse buffers.
+        if (self._previous_image is not None
+                and image.dtype == self._previous_image.dtype
+                and np.array_equal(image, self._previous_image)):
+            return list(self._previous_objects)
+        objects = self._detect(image)
+        self._previous_image = image.copy()
+        self._previous_objects = tuple(objects)
+        return objects
+
+    def _detect(self, image: np.ndarray) -> list[Detection]:
         h, w = image.shape[:2]
         scale = min(self.size / h, self.size / w)
         # Official YOLOX ONNX uses BGR, 0..255, top-left padding, no normalization.
