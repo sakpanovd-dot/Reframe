@@ -13,6 +13,7 @@ REASONS = {
     'fast_pan': 'Быстрое перемещение рамки; проверьте плавность.',
     'split_screen': 'Кадр из нескольких панелей: показана одна панель, смена не чаще раза в 2 с.',
     'graphic': 'Титр или графика вписаны целиком по ширине; проверьте читаемость.',
+    'dialogue': 'Диалог: собеседники показаны по очереди (план не короче 2 с); проверьте, что в кадре говорящий.',
 }
 MODES = {'crop': 'Кроп', 'panel': 'Панель', 'graphic': 'Графика', 'fit': 'Полный кадр'}
 
@@ -24,11 +25,12 @@ def intervals(plan, duration):
         flags = sorted(set(key.reason.split('|')) & REASONS.keys())
         if end <= key.time or not flags:
             continue
-        if (result and result[-1]['scene'] == key.scene and result[-1]['reasons'] == flags
+        if (result and result[-1]['scene'] == key.scene and result[-1]['shot'] == key.shot
+                and result[-1]['reasons'] == flags
                 and abs(result[-1]['end']-key.time) < 1e-6 and result[-1]['mode'] == key.mode):
             result[-1]['end'] = end
         else:
-            result.append(dict(start=key.time, end=end, scene=key.scene, mode=key.mode, reasons=flags))
+            result.append(dict(start=key.time, end=end, scene=key.scene, mode=key.mode, reasons=flags, shot=key.shot))
     return result
 
 

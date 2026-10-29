@@ -54,7 +54,7 @@ def test_uncertain_live_scene_is_cropped_at_best_guess_and_flagged():
     assert all(k.mode == 'crop' for k in result.keyframes)
     assert all(k.x <= 480 and k.x + result.crop_width >= 600 for k in result.keyframes)
     review = intervals(result, 2)
-    assert review == [dict(start=0., end=2., scene=0, mode='crop', reasons=['no_subject'])]
+    assert review == [dict(start=0., end=2., scene=0, mode='crop', reasons=['no_subject'], shot=0)]
 
 
 def test_title_card_is_fitted_as_graphic_but_live_flat_moment_is_not():
@@ -150,3 +150,71 @@ def test_scene_without_objects_is_framed_on_faces():
     face = Detection((520, 80, 560, 130), .9, -1)
     result = plan([Sample(i*.2, 0, [], [(0, 0, 200, 360)], faces=[face]) for i in range(10)])
     assert all(k.mode == 'crop' and k.x <= 520 and k.x + result.crop_width >= 560 for k in result.keyframes)
+
+
+def dialogue_samples(seconds=6., speaker=lambda t: None, b_box=(500, 40, 600, 360)):
+    """Person 1 on the left, person 2 on the right; speaker(t) -> 1, 2 or None."""
+    a_face = Detection((70, 50, 110, 100), .9, -1)
+    b_face = Detection((b_box[0] + 30, 50, b_box[0] + 70, 100), .9, -1)
+    samples = []
+    for i in range(round(seconds / .2)):
+        t = i * .2
+        who = speaker(t)
+        samples.append(Sample(t, 0, [Detection((40, 40, 140, 360), .9, 0, 1), Detection(b_box, .9, 0, 2)],
+                              faces=[a_face, b_face], speaking=[.2 if who == 1 else 0., .2 if who == 2 else 0.]))
+    return samples
+
+
+def shows(key, crop, face):
+    return key.x <= face[0] and key.x + crop >= face[2]
+
+
+def test_dialogue_cuts_to_the_speaker_without_sliding():
+    result = plan(dialogue_samples(6., lambda t: 1 if t < 3 else 2))
+    keys = result.keyframes
+    assert all('dialogue' in k.reason for k in keys)
+    first = [k for k in keys if k.time < 2.8]
+    last = [k for k in keys if k.time > 3.8]
+    assert all(shows(k, result.crop_width, (70, 50, 110, 100)) for k in first)
+    assert all(shows(k, result.crop_width, (530, 50, 570, 100)) for k in last)
+    cuts = [b.time for a, b in zip(keys, keys[1:]) if b.shot != a.shot]
+    assert len(cuts) == 1 and 2.9 <= cuts[0] <= 3.8
+    # The renderer holds the old framing right up to the cut instead of panning.
+    from reframe.render import Renderer
+    renderer = Renderer(result)
+    before = max((k for k in keys if k.time < cuts[0]), key=lambda k: k.time)
+    assert renderer.position(cuts[0] - .01)[1] == round(before.x)
+
+
+def test_dialogue_without_visible_speech_alternates_both_people():
+    keys = plan(dialogue_samples(10.)).keyframes
+    shots = [k.shot for k in keys]
+    assert len(set(shots)) >= 3
+    lengths = [sum(s == shot for s in shots) * .2 for shot in set(shots)]
+    assert min(lengths[:-1]) >= 2 - 1e-6 and max(lengths) <= 4 + 1e-6
+
+
+def test_no_dialogue_cut_when_people_fit_together_or_scene_is_short():
+    together = plan(dialogue_samples(6., b_box=(130, 40, 200, 360))).keyframes
+    assert not any('dialogue' in k.reason for k in together)
+    short = plan(dialogue_samples(3., lambda t: 1 if t < 1.5 else 2)).keyframes
+    assert not any('dialogue' in k.reason for k in short)
+
+
+def test_small_background_person_is_not_a_dialogue_partner():
+    samples = dialogue_samples(6., lambda t: 2)
+    for s in samples:
+        s.objects[1] = Detection((540, 200, 580, 300), .9, 0, 2)
+        s.faces[1] = Detection((550, 205, 570, 225), .9, -1)
+    assert not any('dialogue' in k.reason for k in plan(samples).keyframes)
+
+
+def test_couple_with_wide_bodies_but_close_faces_stays_a_two_shot():
+    # Sitting couple: bodies span 210 px (crop is 198), faces only 120 px.
+    samples = [Sample(i*.2, 0, [Detection((200, 60, 320, 360), .9, 0, 1), Detection((290, 50, 410, 360), .9, 0, 2)],
+                      faces=[Detection((240, 70, 280, 120), .9, -1), Detection((320, 60, 360, 110), .9, -1)],
+                      speaking=[.2, 0.]) for i in range(30)]
+    result = plan(samples)
+    assert not any('dialogue' in k.reason or 'multiple_subjects' in k.reason for k in result.keyframes)
+    assert all(shows(k, result.crop_width, (240, 70, 280, 120)) and shows(k, result.crop_width, (320, 60, 360, 110))
+               for k in result.keyframes)

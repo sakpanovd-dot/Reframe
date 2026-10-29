@@ -54,14 +54,30 @@ class FaceDetector:
         self.model = cv2.FaceDetectorYN.create(str(path), "", (320, 320), self.SCORE, .3, 50)
 
     def detect(self, image: np.ndarray) -> list[Detection]:
+        return [face for face, _, _ in self.regions(image)]
+
+    def regions(self, image: np.ndarray):
+        """Faces with a mouth box and an eye-band box derived from YuNet landmarks.
+
+        The two boxes let analysis tell lip movement (speech) apart from head
+        movement, which changes both regions alike.
+        """
         h, w = image.shape[:2]
         self.model.setInputSize((w, h))
         _, faces = self.model.detect(image)
         result = []
         for face in [] if faces is None else faces:
-            x, y, fw, fh, score = float(face[0]), float(face[1]), float(face[2]), float(face[3]), float(face[14])
-            if score >= self.SCORE and fh >= h * self.MIN_HEIGHT:
-                result.append(Detection((max(0., x), max(0., y), min(float(w), x + fw), min(float(h), y + fh)), score, -1))
+            score = float(face[14])
+            x, y, fw, fh = float(face[0]), float(face[1]), float(face[2]), float(face[3])
+            if score < self.SCORE or fh < h * self.MIN_HEIGHT:
+                continue
+            (rex, rey), (lex, ley), (nx, ny), (rmx, rmy), (lmx, lmy) = face[4:14].reshape(5, 2).astype(float)
+            mouth_y = (rmy + lmy) / 2
+            lip = max(2., mouth_y - ny)
+            mouth = (min(rmx, lmx) - fw * .08, (ny + mouth_y) / 2, max(rmx, lmx) + fw * .08, mouth_y + lip * .8)
+            eyes = (min(rex, lex) - fw * .1, min(rey, ley) - fh * .1, max(rex, lex) + fw * .1, max(rey, ley) + fh * .1)
+            box = (max(0., x), max(0., y), min(float(w), x + fw), min(float(h), y + fh))
+            result.append((Detection(box, score, -1), mouth, eyes))
         return result
 
 

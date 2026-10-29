@@ -8,7 +8,7 @@ from scipy.optimize import linear_sum_assignment
 
 from .contracts import AnalysisResult, Detection, ProgressEvent, Sample
 from .media import frames, check_cancel
-from .scenes import SceneDetector, flatness, motion_boxes, panels, thumbnail
+from .scenes import SceneDetector, face_patches, flatness, lip_activity, motion_boxes, panels, thumbnail
 
 
 def iou(a, b) -> float:
@@ -71,6 +71,7 @@ def analyze(info, detector, cancel, emit, faces=None) -> AnalysisResult:
     previous = None
     boundaries = SceneDetector()
     activity = []
+    earlier_faces = []
     next_time = 0.0
     for (t, _, image), following in _with_following(info, cancel):
         check_cancel(cancel)
@@ -80,6 +81,7 @@ def analyze(info, detector, cancel, emit, faces=None) -> AnalysisResult:
             scene += 1
             tracker = Tracker()
             activity = []
+            earlier_faces = []
         else:
             activity.extend(motion_boxes(previous, small))
         previous = small
@@ -90,11 +92,18 @@ def analyze(info, detector, cancel, emit, faces=None) -> AnalysisResult:
         sx, sy = info.width / image.shape[1], info.height / image.shape[0]
         detected = [replace(o, box=(o.box[0] * sx, o.box[1] * sy, o.box[2] * sx, o.box[3] * sy)) for o in detected]
         objects = tracker.update(detected, t)
-        found = [replace(f, box=(f.box[0] * sx, f.box[1] * sy, f.box[2] * sx, f.box[3] * sy))
-                 for f in faces.detect(image)] if faces else []
+        regions = faces.regions(image) if faces else []
+        found = [replace(f, box=(f.box[0] * sx, f.box[1] * sy, f.box[2] * sx, f.box[3] * sy)) for f, _, _ in regions]
+        # Compare each face with the same face one sample earlier in this shot.
+        patches = [(f.box, face_patches(image, mouth, eyes)) for f, mouth, eyes in regions]
+        speaking = []
+        for box, current in patches:
+            match = max(earlier_faces, key=lambda item: iou(item[0], box), default=None)
+            speaking.append(lip_activity(match[1], current) if match and iou(match[0], box) > .3 else 0.)
+        earlier_faces = patches
         motion = [(x1 * info.width, y1 * info.height, x2 * info.width, y2 * info.height)
                   for x1, y1, x2, y2 in activity]
-        samples.append(Sample(t, scene, objects, motion, panels(image), flatness(image), found))
+        samples.append(Sample(t, scene, objects, motion, panels(image), flatness(image), found, speaking))
         activity = []
         emit(ProgressEvent("Анализ видео", min(1, t / info.duration),
                            f"{detector.backend if detector else 'CPU'} · сцена {scene + 1}"))

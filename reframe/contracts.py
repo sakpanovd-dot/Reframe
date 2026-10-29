@@ -44,6 +44,7 @@ class Sample:
     panels: list[tuple[float, float]] = field(default_factory=list)  # normalized split-screen columns
     flat: float = 0.  # share of untextured area; graphics and title cards are high
     faces: list[Detection] = field(default_factory=list)  # YuNet faces, category -1
+    speaking: list[float] = field(default_factory=list)  # lip activity per face, same order
 
 
 @dataclass
@@ -64,6 +65,7 @@ class Keyframe:
     y: float
     reason: str = ""
     w: float = 0.  # crop width override for panel mode; 0 uses the plan crop size
+    shot: int = 0  # virtual shot within a scene (dialogue cuts); the crop never slides across shots
 
 
 @dataclass

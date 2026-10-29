@@ -13,7 +13,7 @@ class Renderer:
     def _linked(self, a, b):
         keys = self.plan.keyframes
         return 0 <= a < len(keys) and 0 <= b < len(keys) and keys[a].scene == keys[b].scene \
-            and keys[a].mode == keys[b].mode == "crop"
+            and keys[a].shot == keys[b].shot and keys[a].mode == keys[b].mode == "crop"
 
     def position(self, t):
         """Return (mode, x, y, crop width) at time t.

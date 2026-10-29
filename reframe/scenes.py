@@ -123,6 +123,39 @@ def flatness(image):
     return float(np.mean(blocks < 4))
 
 
+def face_patches(image, mouth, eyes):
+    """Mouth and eye-band patches at a fixed size and normalized contrast.
+
+    Cropping by each frame's own landmarks cancels head movement; the
+    normalization cancels exposure. None when a region is too small.
+    """
+    h, w = image.shape[:2]
+
+    def patch(box, size):
+        x1, y1, x2, y2 = (int(round(v)) for v in box)
+        x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
+        if x2 - x1 < 4 or y2 - y1 < 3:
+            return None
+        gray = cv2.cvtColor(cv2.resize(image[y1:y2, x1:x2], size, interpolation=cv2.INTER_AREA),
+                            cv2.COLOR_BGR2GRAY).astype(np.float32)
+        return (gray - gray.mean()) / (gray.std() + 8)
+    return patch(mouth, (32, 16)), patch(eyes, (48, 12))
+
+
+def lip_activity(before, after):
+    """Lip shape change between two samples of one face beyond the change around the eyes.
+
+    Speech reshapes the mouth within 0.2 s; blinking and expression move the
+    eye band too, so only the excess is counted. 0 when unmeasurable.
+    """
+    (mouth_a, eyes_a), (mouth_b, eyes_b) = before, after
+    if mouth_a is None or mouth_b is None:
+        return 0.
+    lips = float(np.mean(np.abs(mouth_a - mouth_b)))
+    reference = float(np.mean(np.abs(eyes_a - eyes_b))) if eyes_a is not None and eyes_b is not None else 0.
+    return max(0., lips - reference)
+
+
 def motion_boxes(previous, current):
     """Significant changed regions in normalized coordinates, not object labels.
 

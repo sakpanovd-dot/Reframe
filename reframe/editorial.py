@@ -1,6 +1,6 @@
 """Offline scene composition for the primary 16:9 -> 9:16 editorial workflow.
 
-Heuristics over detector tracks, not semantic understanding of dialogue or text.
+Heuristics over detector tracks and lip movement, not semantic understanding of dialogue or text.
 Live footage is always cropped: a blurred background is unusable for the editor,
 so uncertain framing is a best guess flagged in the review report instead.
 """
@@ -16,6 +16,9 @@ from .planner import dimensions, excludes_activity, unexplained_activity
 GRAPHIC_FLATNESS = .75  # title cards and packshots; dark live shots measured up to .57
 PANEL_HOLD = 2.         # seconds on one split-screen panel before switching
 PANEL_FORCE = 3.        # switch without waiting for a cut inside the panel
+DIALOGUE_HOLD = 2.      # seconds on one speaker before cutting to the other
+DIALOGUE_FORCE = 4.     # show the listener too, even during a monologue
+FACES_TOGETHER = .85    # share of the crop width two faces may span in one shot
 
 
 def applies(width, height, preset):
@@ -54,13 +57,14 @@ def fallback_center(samples, w, h):
 
 def scene_keys(scene, samples, w, h, cw, ch):
     tracks = defaultdict(list)
-    faced = set()  # (time, track) pairs where the object shows a face
+    faced = {}  # (time, track) -> face box where the object shows a face
     for sample in samples:
         for obj in sample.objects:
             if obj.confidence >= .35:
                 tracks[obj.track_id].append((sample.time, obj))
-                if face_of(obj, sample.faces):
-                    faced.add((sample.time, obj.track_id))
+                face = face_of(obj, sample.faces)
+                if face:
+                    faced[(sample.time, obj.track_id)] = face.box
     scores = {}
     for track, entries in tracks.items():
         # A visible face marks a person the viewer looks at, not a back or a prop.
@@ -69,13 +73,89 @@ def scene_keys(scene, samples, w, h, cw, ch):
             + .2 * (1 - abs((obj.box[0]+obj.box[2])/2 - w/2) / (w/2)) + .15 * ((t, track) in faced)
             for t, obj in entries) / len(samples)
     selected = max(scores, key=scores.get) if scores else None
-    entries = tracks.get(selected, [])
+    pair = dialogue_pair(samples, tracks, scores, faced, cw)
+    if pair:
+        keys = []
+        for shot, (start, end, person) in enumerate(dialogue_shots(samples, pair, scores)):
+            keys.extend(track_keys(scene, samples[start:end], person, scores, w, h, cw, ch, solo=True, shot=shot))
+        return keys
+    return track_keys(scene, samples, selected, scores, w, h, cw, ch)
+
+
+def person_activity(sample, track):
+    """Lip activity of the face belonging to a tracked person in one sample, if visible."""
+    obj = next((o for o in sample.objects if o.track_id == track), None)
+    face = face_of(obj, sample.faces) if obj else None
+    if face is None:
+        return None
+    index = next(i for i, f in enumerate(sample.faces) if f is face)
+    return sample.speaking[index] if index < len(sample.speaking) else 0.
+
+
+def dialogue_pair(samples, tracks, scores, faced, cw):
+    """Two people facing the camera who cannot share one vertical crop, or None.
+
+    Conservative on purpose: both must be present for most of a long enough
+    scene, with comparable face sizes, so a passer-by or a background extra
+    never triggers cutting inside a shot.
+    """
+    if samples[-1].time - samples[0].time + .2 < 2 * DIALOGUE_HOLD:
+        return None
+    people = []
+    for track, entries in tracks.items():
+        persons = [(t, o) for t, o in entries if o.category == 0]
+        shown = sum((t, track) in faced for t, _ in persons)
+        if len(persons) >= .5 * len(samples) and shown >= .4 * len(samples):
+            people.append(track)
+    if len(people) < 2:
+        return None
+    a, b = sorted(people, key=scores.get, reverse=True)[:2]
+
+    def typical(track):
+        return np.median([box for (_, t), box in faced.items() if t == track], axis=0)
+    face_a, face_b = typical(a), typical(b)
+    heights = [face[3] - face[1] for face in (face_a, face_b)]
+    if min(heights) < .5 * max(heights):
+        return None
+    if max(face_a[2], face_b[2]) - min(face_a[0], face_b[0]) <= cw * FACES_TOGETHER:
+        return None  # both faces fit: a two-shot, not a dialogue cut
+    return a, b
+
+
+def dialogue_shots(samples, pair, scores):
+    """Split a dialogue scene into (start, end, person) shots of at least DIALOGUE_HOLD.
+
+    Cut to the other person when their lips move clearly more; otherwise
+    alternate after DIALOGUE_FORCE so both are seen, as an editor would.
+    """
+    activity = {p: np.array([person_activity(s, p) or 0. for s in samples]) for p in pair}
+    if len(samples) > 2:
+        activity = {p: gaussian_filter1d(a, 2., mode='nearest') for p, a in activity.items()}
+    opening = slice(0, min(len(samples), 5))
+    current = max(pair, key=lambda p: (activity[p][opening].sum(), scores[p]))
+    shots, start = [], 0
+    for i, sample in enumerate(samples):
+        held = sample.time - samples[start].time
+        if held < DIALOGUE_HOLD - 1e-6 or samples[-1].time - sample.time < 1.:
+            continue
+        other = pair[1] if current == pair[0] else pair[0]
+        if activity[other][i] > activity[current][i] * 1.3 + .02 or held >= DIALOGUE_FORCE - 1e-6:
+            shots.append((start, i, current))
+            start, current = i, other
+    shots.append((start, len(samples), current))
+    return shots
+
+
+def track_keys(scene, samples, selected, scores, w, h, cw, ch, solo=False, shot=0):
+    """Follow one tracked subject through the samples; solo shows only that person."""
+    entries = [(s.time, o) for s in samples for o in s.objects if o.track_id == selected and o.confidence >= .35]
     # A sustained subject is required, but no warm-up is imposed on each scene.
     if len(entries) / len(samples) < .55:
         reason = 'no_subject' if not entries else 'unstable_subject'
         center = np.clip(fallback_center(samples, w, h), [cw/2, ch/2], [w-cw/2, h-ch/2])
         x, y = center - [cw/2, ch/2]
-        return [Keyframe(s.time, scene, 'crop', float(x), float(y), reason) for s in samples]
+        reason += '|dialogue' if solo else ''
+        return [Keyframe(s.time, scene, 'crop', float(x), float(y), reason, shot=shot) for s in samples]
     times = np.array([t for t, _ in entries])
     centers = np.array([[(o.box[0]+o.box[2])/2, (o.box[1]+o.box[3])/2] for _, o in entries])
     targets, reasons, boxes, faces = [], [], [], []
@@ -83,22 +163,29 @@ def scene_keys(scene, samples, w, h, cw, ch):
         obj = next((o for o in s.objects if o.track_id == selected), None)
         face = face_of(obj, s.faces) if obj else None
         faces.append(face.box if face else None)
-        flags = []
+        flags = ['dialogue'] if solo else []
         target = np.array([np.interp(s.time, times, centers[:, axis]) for axis in (0, 1)])
         if obj is None:
             flags.append('subject_lost')
         elif obj.confidence < .55:
             flags.append('weak_detection')
         box = obj.box if obj else None
-        rivals = [o for o in s.objects if o.track_id != selected
-                  and scores.get(o.track_id, 0) >= scores[selected] * .75]
+        rivals = [] if solo else [o for o in s.objects if o.track_id != selected
+                                  and scores.get(o.track_id, 0) >= scores[selected] * .75]
         if obj and rivals:
             group = [obj] + rivals
             union = (min(o.box[0] for o in group), min(o.box[1] for o in group),
                      max(o.box[2] for o in group), max(o.box[3] for o in group))
+            # Faceless rivals (a back, a sofa) matter less than the people looking at us.
+            group_faces = [f for f in (face_of(o, s.faces) for o in group) if f]
             if union[2]-union[0] <= cw * .9 and union[3]-union[1] <= ch:
                 box = union
                 target = np.array([(union[0]+union[2])/2, (union[1]+union[3])/2])
+            elif face and len(group_faces) > 1 and max(f.box[2] for f in group_faces) - min(f.box[0] for f in group_faces) <= cw * FACES_TOGETHER:
+                # Bodies are too wide, but the visible faces fit: frame them as a two-shot.
+                box = (min(f.box[0] for f in group_faces), min(f.box[1] for f in group_faces),
+                       max(f.box[2] for f in group_faces), max(f.box[3] for f in group_faces))
+                target = np.array([(box[0]+box[2])/2, (box[1]+box[3])/2])
             else:
                 flags.append('multiple_subjects')
         if box and (box[2]-box[0] > cw * .9 or box[3]-box[1] > ch):
@@ -146,7 +233,8 @@ def scene_keys(scene, samples, w, h, cw, ch):
             reasons[i].append('outside_action')
         if keys and abs(x-keys[-1].x) / max(.001, sample.time-samples[i-1].time) > cw:
             reasons[i].append('fast_pan')
-        keys.append(Keyframe(sample.time, scene, 'crop', float(x), float(y), '|'.join(reasons[i]) or 'editorial_tracking'))
+        keys.append(Keyframe(sample.time, scene, 'crop', float(x), float(y),
+                             '|'.join(reasons[i]) or 'editorial_tracking', shot=shot))
     return keys
 
 
