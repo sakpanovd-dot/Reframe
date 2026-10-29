@@ -17,7 +17,7 @@ reframe = "reframe.app:main"
 reframe-cli = "reframe.cli:main"
 
 [tool.setuptools.package-data]
-reframe = ["qml/*.qml", "presets.json", "model.json"]
+reframe = ["qml/*.qml", "presets.json", "model.json", "face_model.json"]
 
 [tool.setuptools.packages.find]
 include = ["reframe*"]

@@ -9,6 +9,7 @@ Reframe uses third-party packages installed separately through pip. The lock fil
 | FFmpeg | https://ffmpeg.org/legal.html |
 | ONNX Runtime | https://github.com/microsoft/onnxruntime |
 | YOLOX-s weights / preprocessing | https://github.com/Megvii-BaseDetection/YOLOX |
+| YuNet face detector (2023mar) | https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet (MIT) |
 | OpenCV | https://opencv.org/license/ |
 | NumPy | https://numpy.org/doc/stable/license.html |
 | SciPy | https://scipy.org |

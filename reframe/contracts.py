@@ -43,6 +43,7 @@ class Sample:
     motion_boxes: list[tuple[float, float, float, float]] = field(default_factory=list)
     panels: list[tuple[float, float]] = field(default_factory=list)  # normalized split-screen columns
     flat: float = 0.  # share of untextured area; graphics and title cards are high
+    faces: list[Detection] = field(default_factory=list)  # YuNet faces, category -1
 
 
 @dataclass

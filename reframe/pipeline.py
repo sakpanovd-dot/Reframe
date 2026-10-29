@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .analysis import analyze
 from .contracts import AnalysisResult, Cancelled, ExportRequest, ProgressEvent, ReframeError, Sample
-from .detector import YoloXDetector
+from .detector import FaceDetector, YoloXDetector
 from .export import EXPORTERS, choose_encoder, encode_video, mux_audio, verify
 from .media import check_cancel, lower_priority, probe, worker_threads
 from .planner import make_plan, same_aspect
@@ -86,7 +86,8 @@ def run(request: ExportRequest, cancel, emit=lambda event: None):
                                       [Sample(0., 0, [])], backend="skipped_same_ratio")
         else:
             detector = None if request.fit_only else YoloXDetector(request.cpu_only)
-            analysis = analyze(info, detector, cancel, report)
+            faces = None if request.fit_only else FaceDetector()
+            analysis = analyze(info, detector, cancel, report, faces)
         report(ProgressEvent("Планирование кадра", 1))
         editorial = not request.fit_only and applies(info.width, info.height, presets[request.preset])
         plan = (make_editorial_plan if editorial else make_plan)(analysis, presets[request.preset])

@@ -25,17 +25,51 @@ def model_path() -> Path:
     return Path(os.environ.get("REFRAME_MODEL", str(ROOT / "models" / "yolox_s.onnx")))
 
 
+def face_model_path() -> Path:
+    return Path(os.environ.get("REFRAME_FACE_MODEL", str(ROOT / "models" / "face_detection_yunet_2023mar.onnx")))
+
+
+def verify_model(path: Path, manifest_name: str) -> None:
+    if not path.is_file():
+        raise ReframeError("Модель не установлена. Выполните: python scripts/download_model.py")
+    manifest = json.loads(Path(__file__).with_name(manifest_name).read_text())
+    with path.open("rb") as source:
+        digest = hashlib.file_digest(source, "sha256").hexdigest()
+    if digest != manifest["sha256"]:
+        raise ReframeError("Контрольная сумма модели не совпадает. Повторно скачайте официальную модель.")
+
+
+class FaceDetector:
+    """YuNet faces in the analysis image; boxes use the image's pixel coordinates.
+
+    Faces anchor the crop on people: YOLOX gives a whole-body box, so a close-up
+    or a person holding a phone can otherwise be centred on the torso or the hand.
+    """
+    SCORE = .75
+    MIN_HEIGHT = .025  # of the frame height; smaller hits are mostly background texture
+
+    def __init__(self):
+        path = face_model_path()
+        verify_model(path, "face_model.json")
+        self.model = cv2.FaceDetectorYN.create(str(path), "", (320, 320), self.SCORE, .3, 50)
+
+    def detect(self, image: np.ndarray) -> list[Detection]:
+        h, w = image.shape[:2]
+        self.model.setInputSize((w, h))
+        _, faces = self.model.detect(image)
+        result = []
+        for face in [] if faces is None else faces:
+            x, y, fw, fh, score = float(face[0]), float(face[1]), float(face[2]), float(face[3]), float(face[14])
+            if score >= self.SCORE and fh >= h * self.MIN_HEIGHT:
+                result.append(Detection((max(0., x), max(0., y), min(float(w), x + fw), min(float(h), y + fh)), score, -1))
+        return result
+
+
 class YoloXDetector:
     def __init__(self, cpu_only: bool = False):
         import onnxruntime as ort
         path = model_path()
-        if not path.is_file():
-            raise ReframeError("Модель не установлена. Выполните: python scripts/download_model.py")
-        manifest = json.loads(Path(__file__).with_name("model.json").read_text())
-        with path.open("rb") as source:
-            digest = hashlib.file_digest(source, "sha256").hexdigest()
-        if digest != manifest["sha256"]:
-            raise ReframeError("Контрольная сумма модели не совпадает. Повторно скачайте официальную модель.")
+        verify_model(path, "model.json")
         self.path = path
         self.options = ort.SessionOptions()
         self.options.intra_op_num_threads = min(8, worker_threads())

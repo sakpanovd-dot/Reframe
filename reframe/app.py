@@ -18,7 +18,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QFileDialog, QSystemTrayIcon
 
 from .contracts import ExportRequest, ReframeError
-from .detector import model_path
+from .detector import face_model_path, model_path
 from .export import EXPORTERS
 from .media import CREATE_FLAGS, probe
 from .pipeline import worker, validate_destination
@@ -290,7 +290,7 @@ class Controller(QObject):
             item.update(status="waiting", detail="")
             waiting = [item]
         preset = self.presets[self._state["preset"]]
-        if not model_path().exists() and any(not same_aspect(i["info"].width, i["info"].height, preset)
+        if not (model_path().exists() and face_model_path().exists()) and any(not same_aspect(i["info"].width, i["info"].height, preset)
                                              for i in waiting):
             self.update(error="Модель не установлена. Выполните python scripts/download_model.py из папки Reframe.")
             return

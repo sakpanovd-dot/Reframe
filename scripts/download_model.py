@@ -8,13 +8,15 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def main():
-    manifest = json.loads((ROOT / "reframe" / "model.json").read_text())
+MANIFESTS = ("model.json", "face_model.json")  # YOLOX objects, YuNet faces
+
+
+def install(manifest):
     folder = ROOT / "models"
     folder.mkdir(exist_ok=True)
     target = folder / manifest["filename"]
     if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == manifest["sha256"]:
-        print("Модель уже установлена и проверена.")
+        print(f"Модель {manifest['name']} уже установлена и проверена.")
         return
     partial = target.with_suffix(".part")
     try:
@@ -24,11 +26,17 @@ def main():
         with partial.open("rb") as source:
             checksum = hashlib.file_digest(source, "sha256").hexdigest()
         if checksum != manifest["sha256"]:
-            raise RuntimeError("Контрольная сумма модели не совпала; файл не будет использован.")
+            raise RuntimeError(f"Контрольная сумма модели {manifest['name']} не совпала; файл не будет использован.")
         os.replace(partial, target)
-        print("Модель установлена. Обработка видео доступна без интернета.")
+        print(f"Модель {manifest['name']} установлена.")
     finally:
         partial.unlink(missing_ok=True)
+
+
+def main():
+    for name in MANIFESTS:
+        install(json.loads((ROOT / "reframe" / name).read_text()))
+    print("Обработка видео доступна без интернета.")
 
 
 if __name__ == "__main__":

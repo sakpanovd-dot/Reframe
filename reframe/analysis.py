@@ -66,7 +66,7 @@ def _with_following(info, cancel):
         yield current, None
 
 
-def analyze(info, detector, cancel, emit) -> AnalysisResult:
+def analyze(info, detector, cancel, emit, faces=None) -> AnalysisResult:
     samples, tracker, scene = [], Tracker(), 0
     previous = None
     boundaries = SceneDetector()
@@ -90,9 +90,11 @@ def analyze(info, detector, cancel, emit) -> AnalysisResult:
         sx, sy = info.width / image.shape[1], info.height / image.shape[0]
         detected = [replace(o, box=(o.box[0] * sx, o.box[1] * sy, o.box[2] * sx, o.box[3] * sy)) for o in detected]
         objects = tracker.update(detected, t)
+        found = [replace(f, box=(f.box[0] * sx, f.box[1] * sy, f.box[2] * sx, f.box[3] * sy))
+                 for f in faces.detect(image)] if faces else []
         motion = [(x1 * info.width, y1 * info.height, x2 * info.width, y2 * info.height)
                   for x1, y1, x2, y2 in activity]
-        samples.append(Sample(t, scene, objects, motion, panels(image), flatness(image)))
+        samples.append(Sample(t, scene, objects, motion, panels(image), flatness(image), found))
         activity = []
         emit(ProgressEvent("Анализ видео", min(1, t / info.duration),
                            f"{detector.backend if detector else 'CPU'} · сцена {scene + 1}"))

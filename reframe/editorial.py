@@ -26,9 +26,25 @@ def is_graphic(sample):
     return sample.flat >= GRAPHIC_FLATNESS and not any(o.confidence >= .5 for o in sample.objects)
 
 
+def face_of(obj, faces):
+    """The largest face in the head area of a detected object, if any."""
+    x1, y1, x2, y2 = obj.box
+    head = [f for f in faces if x1 <= (f.box[0]+f.box[2]) / 2 <= x2
+            and y1 - (y2-y1) * .05 <= (f.box[1]+f.box[3]) / 2 <= y1 + (y2-y1) * .6]
+    return max(head, key=lambda f: (f.box[2]-f.box[0]) * (f.box[3]-f.box[1]), default=None)
+
+
+def keep_face(center, face, cw):
+    """Horizontal crop centre that shows the whole face with a small margin."""
+    margin = cw * .06
+    low, high = face[2] + margin - cw / 2, face[0] - margin + cw / 2
+    return float(np.clip(center, low, high)) if low <= high else (face[0] + face[2]) / 2
+
+
 def fallback_center(samples, w, h):
-    """Best guess for a scene without a sustained subject: detections, then motion."""
-    boxes = [o.box for s in samples for o in s.objects] or [b for s in samples for b in s.motion_boxes]
+    """Best guess for a scene without a sustained subject: faces, detections, then motion."""
+    boxes = ([f.box for s in samples for f in s.faces] or [o.box for s in samples for o in s.objects]
+             or [b for s in samples for b in s.motion_boxes])
     if not boxes:
         return np.array([w / 2, h / 2])
     weights = np.array([max(1., (b[2]-b[0]) * (b[3]-b[1])) for b in boxes])
@@ -38,16 +54,20 @@ def fallback_center(samples, w, h):
 
 def scene_keys(scene, samples, w, h, cw, ch):
     tracks = defaultdict(list)
+    faced = set()  # (time, track) pairs where the object shows a face
     for sample in samples:
         for obj in sample.objects:
             if obj.confidence >= .35:
                 tracks[obj.track_id].append((sample.time, obj))
+                if face_of(obj, sample.faces):
+                    faced.add((sample.time, obj.track_id))
     scores = {}
     for track, entries in tracks.items():
+        # A visible face marks a person the viewer looks at, not a back or a prop.
         scores[track] = sum(
             .5 * obj.confidence + .3 * min(1., (obj.box[2]-obj.box[0]) * (obj.box[3]-obj.box[1]) / (w*h) * 4)
-            + .2 * (1 - abs((obj.box[0]+obj.box[2])/2 - w/2) / (w/2))
-            for _, obj in entries) / len(samples)
+            + .2 * (1 - abs((obj.box[0]+obj.box[2])/2 - w/2) / (w/2)) + .15 * ((t, track) in faced)
+            for t, obj in entries) / len(samples)
     selected = max(scores, key=scores.get) if scores else None
     entries = tracks.get(selected, [])
     # A sustained subject is required, but no warm-up is imposed on each scene.
@@ -58,9 +78,11 @@ def scene_keys(scene, samples, w, h, cw, ch):
         return [Keyframe(s.time, scene, 'crop', float(x), float(y), reason) for s in samples]
     times = np.array([t for t, _ in entries])
     centers = np.array([[(o.box[0]+o.box[2])/2, (o.box[1]+o.box[3])/2] for _, o in entries])
-    targets, reasons, boxes = [], [], []
+    targets, reasons, boxes, faces = [], [], [], []
     for s in samples:
         obj = next((o for o in s.objects if o.track_id == selected), None)
+        face = face_of(obj, s.faces) if obj else None
+        faces.append(face.box if face else None)
         flags = []
         target = np.array([np.interp(s.time, times, centers[:, axis]) for axis in (0, 1)])
         if obj is None:
@@ -111,6 +133,10 @@ def scene_keys(scene, samples, w, h, cw, ch):
     centers = np.array(centers)
     if len(centers) > 2:
         centers = gaussian_filter1d(centers, 1.5, axis=0, mode='nearest')
+    # The selected person's face is never cut, even when the body is too wide.
+    for i, face in enumerate(faces):
+        if face is not None:
+            centers[i, 0] = keep_face(centers[i, 0], face, cw)
     centers = np.clip(centers, [cw/2, ch/2], [w-cw/2, h-ch/2])
     keys = []
     for i, sample in enumerate(samples):
@@ -130,7 +156,7 @@ def same_layout(a, b):
 
 def panel_score(sample, panel, w):
     x1, x2 = panel[0] * w, panel[1] * w
-    return sum(o.confidence * (o.box[2]-o.box[0]) * (o.box[3]-o.box[1]) for o in sample.objects
+    return sum(o.confidence * (o.box[2]-o.box[0]) * (o.box[3]-o.box[1]) for o in sample.objects + sample.faces
                if x1 <= (o.box[0]+o.box[2]) / 2 <= x2)
 
 

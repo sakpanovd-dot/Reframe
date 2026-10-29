@@ -128,3 +128,25 @@ def test_controller_receives_review_then_success(tmp_path):
         assert '3' in controller.state['detail']
     finally:
         controller.timer.stop()
+
+
+def test_face_of_wide_subject_is_never_cut():
+    # Leaning person: wide body box, face at its right edge (crop width is 198 of 640).
+    body, face = (150, 40, 460, 360), Detection((400, 50, 440, 100), .9, -1)
+    result = plan([Sample(i*.2, 0, [Detection(body, .9, 0, 1)], faces=[face]) for i in range(10)])
+    for key in result.keyframes:
+        assert key.x <= 400 and key.x + result.crop_width >= 440
+
+
+def test_person_showing_face_is_preferred_over_back_view():
+    back, front = (60, 60, 140, 340), (480, 60, 560, 340)
+    samples = [Sample(i*.2, 0, [Detection(back, .9, 0, 1), Detection(front, .85, 0, 2)],
+                      faces=[Detection((500, 70, 540, 120), .9, -1)]) for i in range(10)]
+    result = plan(samples)
+    assert all(k.x <= 480 and k.x + result.crop_width >= 560 for k in result.keyframes)
+
+
+def test_scene_without_objects_is_framed_on_faces():
+    face = Detection((520, 80, 560, 130), .9, -1)
+    result = plan([Sample(i*.2, 0, [], [(0, 0, 200, 360)], faces=[face]) for i in range(10)])
+    assert all(k.mode == 'crop' and k.x <= 520 and k.x + result.crop_width >= 560 for k in result.keyframes)
