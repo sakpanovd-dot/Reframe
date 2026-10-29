@@ -57,7 +57,7 @@ def main():
             runs[-1]['end'] = end
         else:
             runs.append(dict(start=key.time, end=end, scene=key.scene, mode=key.mode))
-    crops = [r for r in runs if r['mode'] == 'crop']
+    crops = [r for r in runs if r['mode'] in ('crop', 'panel')]
     targets = list(np.linspace(0, max(0, analysis['duration'] - .5), 16))
     for run in crops:
         targets.extend([run['start'], (run['start'] + run['end']) / 2, max(run['start'], run['end'] - .1)])
@@ -68,14 +68,14 @@ def main():
     tiles = []
     for source, output in zip(sources, outputs):
         t, image, scale = source
-        mode, x, y = renderer.position(t)
+        mode, x, y, width = renderer.position(t)
         sample = analysis['samples'][max(0, bisect_right(sample_times, t) - 1)]
         for obj in sample['objects']:
             x1, y1, x2, y2 = [round(v * scale) for v in obj['box']]
             cv2.rectangle(image, (x1, y1), (x2, y2), (0, 160, 255), 1)
-        if mode == 'crop':
+        if mode in ('crop', 'panel'):
             cv2.rectangle(image, (round(x * scale), round(y * scale)),
-                          (round((x + plan.crop_width) * scale), round((y + plan.crop_height) * scale)),
+                          (round((x + width) * scale), round((y + width * plan.crop_height / plan.crop_width) * scale)),
                           (90, 255, 120), 2)
         tile = np.full((310, 660, 3), 24, np.uint8)
         tile[30:30 + image.shape[0], :image.shape[1]] = image

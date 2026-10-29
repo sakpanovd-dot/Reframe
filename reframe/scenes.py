@@ -65,9 +65,12 @@ class SceneDetector:
         # Animation often holds each drawing for several frames. A median of
         # those near-zero differences would label every new drawing a cut.
         baseline = float(np.percentile(self.recent, 90)) if self.recent else 0.
+        # The last term covers cuts between two dark shots: absolute differences
+        # stay small there, but they are an order of magnitude above recent motion.
         candidate = ((hist > .65 and raw > .15) or raw > .42 or
                      (raw > .12 and centered > .10 and hist > .12 and raw > 4 * max(.015, baseline)) or
-                     (hist > .45 and raw > .16 and centered > .07))
+                     (hist > .45 and raw > .16 and centered > .07) or
+                     (hist > .3 and centered > .05 and raw > 10 * max(.008, baseline)))
         if self.flash_return:
             self.flash_return = False
             return False
@@ -88,6 +91,36 @@ class SceneDetector:
         # cut makes held animation drawings repeatedly trigger new cuts.
         self.recent.append(raw)
         return candidate
+
+
+def panels(image):
+    """Side-by-side panels separated by dark full-height bands (split screen).
+
+    Returns normalized (x1, x2) ranges, or [] for an ordinary frame. Letterbox
+    bars alone do not make a split screen: an internal separator is required.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    w = gray.shape[1]
+    separator = (gray.mean(axis=0) < 20) & (gray.std(axis=0) < 10)
+    ranges, start = [], None
+    for x in range(w + 1):
+        content = x < w and not separator[x]
+        if content and start is None:
+            start = x
+        elif not content and start is not None:
+            ranges.append((start, x))
+            start = None
+    ranges = [(a, b) for a, b in ranges if b - a >= w * .15 and gray[:, a:b].mean() > 25]
+    if len(ranges) < 2 or sum(b - a for a, b in ranges) < w * .8:
+        return []
+    return [(a / w, b / w) for a, b in ranges]
+
+
+def flatness(image):
+    """Share of low-texture blocks: high for title cards and packshots."""
+    gray = cv2.cvtColor(cv2.resize(image, (320, 180)), cv2.COLOR_BGR2GRAY).astype(np.float32)
+    blocks = gray.reshape(18, 10, 32, 10).std(axis=(1, 3))
+    return float(np.mean(blocks < 4))
 
 
 def motion_boxes(previous, current):

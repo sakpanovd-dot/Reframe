@@ -41,6 +41,8 @@ class Sample:
     scene: int
     objects: list[Detection]
     motion_boxes: list[tuple[float, float, float, float]] = field(default_factory=list)
+    panels: list[tuple[float, float]] = field(default_factory=list)  # normalized split-screen columns
+    flat: float = 0.  # share of untextured area; graphics and title cards are high
 
 
 @dataclass
@@ -56,10 +58,11 @@ class AnalysisResult:
 class Keyframe:
     time: float
     scene: int
-    mode: str  # crop / fit
+    mode: str  # crop / fit / panel / graphic
     x: float
     y: float
     reason: str = ""
+    w: float = 0.  # crop width override for panel mode; 0 uses the plan crop size
 
 
 @dataclass

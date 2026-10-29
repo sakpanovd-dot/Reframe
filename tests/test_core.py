@@ -36,7 +36,7 @@ def test_moving_subject_is_inside_crop_and_crop_really_used():
     renderer = Renderer(plan)
     crop_count = 0
     for sample in samples:
-        mode, x, y = renderer.position(sample.time)
+        mode, x, y, _ = renderer.position(sample.time)
         if mode == "crop":
             crop_count += 1
             x1, y1, x2, y2 = sample.objects[0].box

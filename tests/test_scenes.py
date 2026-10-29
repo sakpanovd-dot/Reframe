@@ -84,3 +84,33 @@ def test_subject_motion_trail_does_not_disable_following():
     plan = make_plan(AnalysisResult(640, 360, 4, samples), load_presets()['9:16'])
     assert sum(k.mode == 'crop' for k in plan.keyframes) >= 16
     assert not any(k.reason == 'motion_outside_crop' for k in plan.keyframes)
+
+
+def test_cut_between_two_dark_shots_is_detected():
+    # Two night interiors: absolute change is small, but far above recent motion.
+    dark_a = (texture(1) // 8).astype(np.uint8)
+    dark_b = (texture(2) // 8).astype(np.uint8)
+    dark_a += np.uint8([25, 8, 0])     # cold blue night
+    dark_b += np.uint8([0, 12, 22])    # warm lamp light
+    dark_a[20:70, 10:50] += 50         # window on the left
+    dark_b[30:80, 100:140] += 45       # lamp on the right
+    detector = SceneDetector()
+    for _ in range(6):
+        assert not detector.update(dark_a, dark_a)
+    assert detector.update(dark_b, dark_b)
+
+
+def test_split_screen_panels_and_flat_graphics():
+    from reframe.scenes import flatness, panels
+    frame = np.zeros((360, 640, 3), np.uint8)
+    for x1, x2 in [(10, 205), (220, 420), (435, 630)]:
+        frame[:, x1:x2] = texture(x1)[:1].mean() + 60
+        frame[40:300, x1 + 20:x2 - 20] = cv2.resize(texture(x2), (x2 - x1 - 40, 260))
+    found = panels(frame)
+    assert len(found) == 3 and abs(found[1][0] - 220 / 640) < .01
+    assert panels(cv2.resize(texture(4), (640, 360))) == []  # ordinary frame
+    assert panels(np.zeros((360, 640, 3), np.uint8)) == []   # black title card
+    title = np.zeros((360, 640, 3), np.uint8)
+    cv2.putText(title, 'TITLE', (220, 190), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 3)
+    assert flatness(title) > .75
+    assert flatness(cv2.resize(texture(9), (640, 360))) < .3

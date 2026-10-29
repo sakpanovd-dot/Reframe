@@ -48,11 +48,38 @@ def test_two_subjects_group_if_they_fit_otherwise_flag(near):
         assert all('multiple_subjects' in k.reason for k in result.keyframes)
 
 
-def test_uncertain_scene_fits_and_is_flagged():
-    result = plan([Sample(i*.2, 0, []) for i in range(10)])
-    assert all(k.mode == 'fit' for k in result.keyframes)
+def test_uncertain_live_scene_is_cropped_at_best_guess_and_flagged():
+    # A blurred background is unusable for the editor: crop where motion happens.
+    result = plan([Sample(i*.2, 0, [], [(480, 100, 600, 300)]) for i in range(10)])
+    assert all(k.mode == 'crop' for k in result.keyframes)
+    assert all(k.x <= 480 and k.x + result.crop_width >= 600 for k in result.keyframes)
     review = intervals(result, 2)
-    assert review == [dict(start=0., end=2., scene=0, mode='fit', reasons=['no_subject'])]
+    assert review == [dict(start=0., end=2., scene=0, mode='crop', reasons=['no_subject'])]
+
+
+def test_title_card_is_fitted_as_graphic_but_live_flat_moment_is_not():
+    samples = [Sample(i*.2, 0, [], flat=.95) for i in range(5)]
+    samples += [Sample(1+i*.2, 0, [Detection((250, 80, 295, 290), .9, 0, 1)], flat=.3) for i in range(10)]
+    samples[8] = Sample(samples[8].time, 0, [], flat=.9)  # single flat sample inside live footage
+    result = plan(samples)
+    assert [k.mode for k in result.keyframes[:5]] == ['graphic'] * 5
+    assert all(k.mode == 'crop' for k in result.keyframes[5:])
+    assert {r for e in intervals(result, 3) for r in e['reasons']} >= {'graphic'}
+
+
+def test_split_screen_shows_one_panel_and_switches_after_hold():
+    layout = [(.02, .32), (.35, .65), (.68, .98)]
+    # Subject in the middle panel; a cut inside a panel every 1.2 s.
+    samples = [Sample(i*.2, i // 6, [Detection((300, 80, 340, 300), .9, 0, i // 6)], panels=layout)
+               for i in range(30)]
+    result = plan(samples)
+    assert all(k.mode == 'panel' and k.reason == 'split_screen' for k in result.keyframes)
+    centers = [round((k.x + k.w/2) / 640, 2) for k in result.keyframes]
+    assert centers[0] == .5  # starts on the panel with the subject
+    assert all(k.w <= .3 * 640 for k in result.keyframes)
+    changes = [k.time for k, prev, c, p in zip(result.keyframes[1:], result.keyframes, centers[1:], centers) if c != p]
+    assert changes and all(b - a >= 2 - 1e-6 for a, b in zip([0] + changes, changes))
+    assert len(set(centers)) >= 2
 
 
 def test_external_motion_does_not_disable_crop_but_is_reported():

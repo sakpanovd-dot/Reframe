@@ -10,7 +10,10 @@ User-facing text is Russian. Read README.md and TESTING.md before making changes
 - Never overwrite the input. Publish the output only after successful verification.
 - Preserve video timing and the primary audio track; support VFR, rotation, SAR, and no audio.
 - Processing stays local, outside the GUI process, with cancellation and cleanup.
-- Uncertain scenes must preserve the complete frame rather than silently lose the subject.
+- Uncertain scenes must never silently lose the subject. In the editorial 16:9 -> 9:16 strategy
+  live footage is always cropped (best guess + review-report flag): the user rejects blurred
+  backgrounds. Flat title cards/packshots are fitted on their own extended background; split
+  screens show one panel. Other aspect pairs keep the conservative full-frame fallback.
 - Do not upload videos, model weights, environments, logs, settings, or test artifacts to Git.
 
 ## Setup and checks

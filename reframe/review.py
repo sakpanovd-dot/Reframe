@@ -11,7 +11,10 @@ REASONS = {
     'partial_subject': 'Объект показан частично: проверьте лицо, руки и действие.',
     'outside_action': 'Заметное движение осталось за рамкой.',
     'fast_pan': 'Быстрое перемещение рамки; проверьте плавность.',
+    'split_screen': 'Кадр из нескольких панелей: показана одна панель, смена не чаще раза в 2 с.',
+    'graphic': 'Титр или графика вписаны целиком по ширине; проверьте читаемость.',
 }
+MODES = {'crop': 'Кроп', 'panel': 'Панель', 'graphic': 'Графика', 'fit': 'Полный кадр'}
 
 
 def intervals(plan, duration):
@@ -38,7 +41,7 @@ def timecode(seconds):
 
 def html_report(destination, entries):
     rows = ''.join(f'<tr><td>{timecode(e["start"])} — {timecode(e["end"])}</td>'
-                   f'<td>{e["scene"]+1}</td><td>{"Кроп" if e["mode"] == "crop" else "Полный кадр"}</td>'
+                   f'<td>{e["scene"]+1}</td><td>{MODES.get(e["mode"], e["mode"])}</td>'
                    f'<td>{escape(" ".join(REASONS[r] for r in e["reasons"]))}</td></tr>' for e in entries)
     return ('<!doctype html><html lang="ru"><meta charset="utf-8"><title>Reframe — проверка монтажа</title>'
             '<style>body{font:16px system-ui;background:#151719;color:#eee;margin:32px;line-height:1.5}'

@@ -28,7 +28,7 @@ def main():
     result = defaultdict(lambda: {"frames": 0, "crop": 0, "visible": 0, "contained": 0})
     for item in annotations:
         metric = result[item["scene"]]
-        mode, x, y = renderer.position(item["time"])
+        mode, x, y, _ = renderer.position(item["time"])
         metric["frames"] += 1
         metric["crop"] += mode == "crop"
         if item["box"]:
@@ -49,7 +49,7 @@ def main():
         if t + .001 < next_time:
             continue
         next_time += 3
-        mode, x, y = renderer.position(t)
+        mode, x, y, _ = renderer.position(t)
         source = image.copy()
         if mode == "crop":
             cv2.rectangle(source, (x, y), (x + plan.crop_width, y + plan.crop_height), (124, 244, 195), 3)

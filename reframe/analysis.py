@@ -8,7 +8,7 @@ from scipy.optimize import linear_sum_assignment
 
 from .contracts import AnalysisResult, Detection, ProgressEvent, Sample
 from .media import frames, check_cancel
-from .scenes import SceneDetector, thumbnail, motion_boxes
+from .scenes import SceneDetector, flatness, motion_boxes, panels, thumbnail
 
 
 def iou(a, b) -> float:
@@ -92,7 +92,7 @@ def analyze(info, detector, cancel, emit) -> AnalysisResult:
         objects = tracker.update(detected, t)
         motion = [(x1 * info.width, y1 * info.height, x2 * info.width, y2 * info.height)
                   for x1, y1, x2, y2 in activity]
-        samples.append(Sample(t, scene, objects, motion))
+        samples.append(Sample(t, scene, objects, motion, panels(image), flatness(image)))
         activity = []
         emit(ProgressEvent("Анализ видео", min(1, t / info.duration),
                            f"{detector.backend if detector else 'CPU'} · сцена {scene + 1}"))
