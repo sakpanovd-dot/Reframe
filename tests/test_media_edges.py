@@ -1,3 +1,4 @@
+import os
 import threading
 from pathlib import Path
 import av
@@ -113,3 +114,33 @@ def test_detect_scene_cut_on_exact_frame(monkeypatch):
     info = VideoInfo(Path("fake"), 320, 180, .8, 25, 0, None)
     result = analyze(info, None, threading.Event(), lambda e: None)
     assert next(s.time for s in result.samples if s.scene == 1) == 7 / 25
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows priority classes")
+def test_job_priority_is_lowered_for_process_and_ffmpeg_children():
+    import multiprocessing
+    context = multiprocessing.get_context("spawn")
+    queue = context.Queue()
+    process = context.Process(target=_report_priority, args=(queue,))
+    process.start()
+    own, child = queue.get(timeout=60)
+    process.join(30)
+    assert own == child == 0x4000  # BELOW_NORMAL_PRIORITY_CLASS
+
+
+def _report_priority(queue):
+    import ctypes
+    import subprocess
+    import time
+    from ctypes import wintypes
+    from reframe.media import CREATE_FLAGS, binary, lower_priority
+    kernel = ctypes.WinDLL("kernel32")
+    kernel.GetCurrentProcess.restype = kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.GetPriorityClass.argtypes = (wintypes.HANDLE,)
+    lower_priority()
+    child = subprocess.Popen([binary("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", "color=d=1", "-f", "null", "-"],
+                             creationflags=CREATE_FLAGS)
+    time.sleep(.2)
+    queue.put((kernel.GetPriorityClass(kernel.GetCurrentProcess()),
+               kernel.GetPriorityClass(kernel.OpenProcess(0x1000, False, child.pid))))
+    child.wait()

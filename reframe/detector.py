@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from .contracts import Detection, ReframeError
+from .media import worker_threads
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,7 +38,7 @@ class YoloXDetector:
             raise ReframeError("Контрольная сумма модели не совпадает. Повторно скачайте официальную модель.")
         self.path = path
         self.options = ort.SessionOptions()
-        self.options.intra_op_num_threads = max(1, min(8, (os.cpu_count() or 4) // 2))
+        self.options.intra_op_num_threads = min(8, worker_threads())
         self.options.add_session_config_entry("session.intra_op.allow_spinning", "0")
         self.options.add_session_config_entry("session.inter_op.allow_spinning", "0")
         providers = ["CPUExecutionProvider"]

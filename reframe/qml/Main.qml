@@ -15,6 +15,8 @@ ApplicationWindow {
     property var s: controller.state
     property color muted: "#959AA6"
     property color accent: "#C3F47C"
+    property var queue: controller.queue
+    property int waiting: queue.filter(function(item) { return item.status === "waiting" }).length
     onClosing: function(close) { close.accepted = controller.requestClose() }
 
     component ActionButton: Button {
@@ -83,7 +85,7 @@ ApplicationWindow {
                 Layout.fillWidth: true; Layout.fillHeight: true; spacing: 12
                 Rectangle {
                     Layout.fillWidth: true; Layout.fillHeight: true
-                    Layout.minimumHeight: 260
+                    Layout.minimumHeight: 200
                     radius: 16
                     color: "#090B0E"
                     border.color: drop.containsDrag ? window.accent : "#2A2E35"
@@ -97,13 +99,16 @@ ApplicationWindow {
                             Text { anchors.centerIn: parent; text: "+"; color: window.accent; font.pixelSize: 34 }
                         }
                         Text { Layout.alignment: Qt.AlignHCenter; text: window.s.loading ? "Проверяем видео…" : "Перетащите видео сюда"; color: "#E9ECF0"; font.pixelSize: 21; font.weight: Font.DemiBold }
-                        Text { Layout.alignment: Qt.AlignHCenter; text: "MP4, MOV, MKV, WebM и другие видео"; color: window.muted; font.pixelSize: 12 }
+                        Text { Layout.alignment: Qt.AlignHCenter; text: "MP4, MOV, MKV, WebM и другие видео · можно сразу несколько"; color: window.muted; font.pixelSize: 12 }
                         ActionButton { Layout.alignment: Qt.AlignHCenter; text: "Выбрать видео"; enabled: !window.s.loading; onClicked: controller.chooseSource() }
                     }
                     DropArea {
                         id: drop; anchors.fill: parent
-                        enabled: !window.s.busy && !window.s.loading
-                        onDropped: function(event) { if (event.hasUrls && event.urls.length === 1) controller.loadSource(event.urls[0].toString()) }
+                        enabled: !window.s.cancelling
+                        onDropped: function(event) {
+                            if (event.hasUrls)
+                                controller.addSources(event.urls.map(function(url) { return url.toString() }))
+                        }
                     }
                     Rectangle {
                         visible: !!window.s.result
@@ -124,7 +129,52 @@ ApplicationWindow {
                         value: player.position; enabled: player.seekable && !window.s.busy
                         onMoved: player.setPosition(value)
                     }
-                    ActionButton { text: "Другое видео"; enabled: !window.s.busy && !window.s.loading; onClicked: controller.chooseSource() }
+                    ActionButton { text: "Добавить видео"; enabled: !window.s.cancelling; onClicked: controller.chooseSource() }
+                }
+                ListView {
+                    id: queueList
+                    objectName: "queueList"
+                    Layout.fillWidth: true
+                    // Small windows keep the status panel visible: fewer rows, then scroll.
+                    property int rows: window.height < 820 ? 2 : 4
+                    Layout.preferredHeight: Math.min(count, rows) * 34
+                    visible: count > 1
+                    clip: true; spacing: 2
+                    model: window.queue
+                    ScrollBar.vertical: ScrollBar { policy: queueList.count > queueList.rows ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded }
+                    delegate: Rectangle {
+                        id: row
+                        required property var modelData
+                        width: queueList.width - 12; height: 32; radius: 8
+                        color: window.s.selected === row.modelData.id ? "#262B33" : rowArea.containsMouse ? "#1E2228" : "transparent"
+                        MouseArea { id: rowArea; anchors.fill: parent; hoverEnabled: true; onClicked: controller.selectItem(row.modelData.id) }
+                        RowLayout {
+                            anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 4; spacing: 10
+                            Rectangle {
+                                width: 8; height: 8; radius: 4
+                                color: row.modelData.status === "done" ? window.accent : row.modelData.status === "error" ? "#FF8A93"
+                                     : row.modelData.status === "processing" ? "#7CC8F4" : "#5A606B"
+                            }
+                            Text { Layout.fillWidth: true; text: row.modelData.name; color: "#D4D8DF"; elide: Text.ElideMiddle; font.pixelSize: 13 }
+                            Text {
+                                Layout.maximumWidth: 260
+                                text: row.modelData.status === "error" ? row.modelData.detail : row.modelData.statusText
+                                color: row.modelData.status === "error" ? "#FFB6BC" : window.muted
+                                elide: Text.ElideRight; font.pixelSize: 12
+                                ToolTip.visible: row.modelData.status === "error" && errorTip.containsMouse
+                                ToolTip.text: row.modelData.detail
+                                MouseArea { id: errorTip; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
+                            }
+                            ToolButton {
+                                text: "×"; implicitWidth: 28; implicitHeight: 28
+                                visible: row.modelData.status !== "processing"
+                                onClicked: controller.removeItem(row.modelData.id)
+                                Accessible.name: "Убрать из очереди"
+                                contentItem: Text { text: "×"; color: window.muted; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                background: Rectangle { radius: 6; color: parent.hovered ? "#343942" : "transparent" }
+                            }
+                        }
+                    }
                 }
                 Text { Layout.fillWidth: true; text: window.s.name; color: "#D4D8DF"; elide: Text.ElideMiddle; font.weight: Font.DemiBold }
                 Text { text: window.s.metadata; color: window.muted; font.pixelSize: 12 }
@@ -195,6 +245,24 @@ ApplicationWindow {
                             }
                         }
                     }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 6
+                        Text { text: "Сохранять"; color: "#D7DAE0" }
+                        Text {
+                            Layout.fillWidth: true; horizontalAlignment: Text.AlignRight
+                            text: window.s.outputDir ? window.s.outputDir.split("/").pop() : "рядом с исходником"
+                            color: window.muted; elide: Text.ElideLeft; font.pixelSize: 12
+                            ToolTip.visible: !!window.s.outputDir && folderTip.containsMouse
+                            ToolTip.text: window.s.outputDir
+                            MouseArea { id: folderTip; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
+                        }
+                        ActionButton { text: "Изменить"; implicitHeight: 30; leftPadding: 10; rightPadding: 10; enabled: !window.s.busy; onClicked: controller.chooseOutputFolder() }
+                        ActionButton {
+                            visible: !!window.s.outputDir; text: "×"; implicitHeight: 30; leftPadding: 8; rightPadding: 8
+                            enabled: !window.s.busy; onClicked: controller.resetOutputFolder()
+                            ToolTip.visible: hovered; ToolTip.text: "Сохранять рядом с исходником"
+                        }
+                    }
                     Rectangle { visible: optionsScroll.availableHeight >= 360; Layout.fillWidth: true; height: 1; color: "#30343C" }
                     Text { visible: optionsScroll.availableHeight >= 360; text: "Всё остальное — автоматически"; color: "#D7DAE0"; font.weight: Font.DemiBold }
                     Text { visible: optionsScroll.availableHeight >= 360; Layout.fillWidth: true; text: "16:9 → 9:16 — вертикальная обрезка для монтажа. Спорные интервалы отмечаем в отчёте. Без устойчивого объекта сохраняем полный кадр."; color: window.muted; wrapMode: Text.WordWrap; font.pixelSize: 12; lineHeight: 1.35 }
@@ -205,7 +273,7 @@ ApplicationWindow {
                     anchors.margins: 22; spacing: 12
                     ActionButton {
                         Layout.fillWidth: true; primary: true
-                        text: window.s.busy ? "Обрабатываем…" : "Создать видео  ↗"
+                        text: window.s.busy ? "Обрабатываем…" : window.waiting > 1 ? "Создать видео (" + window.waiting + ")  ↗" : "Создать видео  ↗"
                         enabled: !!window.s.source && !window.s.busy && !window.s.loading
                         onClicked: { player.pause(); controller.start() }
                     }
@@ -222,6 +290,7 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Text { text: window.s.stage; color: "#EDF0F4"; font.weight: Font.DemiBold }
+                    Text { visible: !!window.s.queueText; text: window.s.queueText; color: window.accent; font.pixelSize: 12 }
                     Text { visible: window.s.busy; text: window.s.elapsed; color: window.muted; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
                     Text { visible: window.s.busy; text: Math.round(window.s.progress * 100) + "%"; color: window.accent }

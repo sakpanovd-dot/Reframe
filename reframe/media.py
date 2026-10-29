@@ -20,6 +20,35 @@ def binary(name: str) -> str:
     return found
 
 
+def worker_threads() -> int:
+    """Threads per decoder/encoder/model in the job process.
+
+    Half of the logical cores: processing runs in the background at lower
+    priority (see lower_priority), so the editor's own apps stay responsive.
+    """
+    try:
+        override = int(os.environ.get("REFRAME_THREADS", "0"))
+    except ValueError:
+        override = 0
+    return override if override > 0 else max(2, (os.cpu_count() or 4) // 2)
+
+
+def lower_priority() -> None:
+    """Below-normal priority for the job process; FFmpeg children inherit it."""
+    if os.name != "nt":
+        return
+    import ctypes
+    import logging
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    # Explicit types: the default int conversion truncates the 64-bit process handle.
+    kernel.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel.SetPriorityClass.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel.SetPriorityClass.restype = wintypes.BOOL
+    if not kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x00004000):  # BELOW_NORMAL_PRIORITY_CLASS
+        logging.warning("Cannot lower job process priority")
+
+
 def check_cancel(cancel) -> None:
     if cancel is not None and cancel.is_set():
         raise Cancelled()
@@ -126,7 +155,7 @@ def frames(info: VideoInfo, cancel=None, max_side: int | None = None):
     import cv2
     with av.open(str(info.path)) as container:
         stream = next(s for s in container.streams.video if s.index == info.video_index)
-        stream.codec_context.thread_count = 2
+        stream.codec_context.thread_count = worker_threads()
         stream.thread_type = "AUTO"
         previous = -1.0
         origin = None

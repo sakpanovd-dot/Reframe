@@ -104,16 +104,24 @@ def test_report_escapes_filename_and_explains_limits(tmp_path):
     assert 'пока не реализовано' in text
 
 
-def test_controller_receives_review_then_success():
+def test_controller_receives_review_then_success(tmp_path):
+    from pathlib import Path
     from PySide6.QtWidgets import QApplication
     from reframe.app import Controller
+    from reframe.contracts import VideoInfo
     app = QApplication.instance() or QApplication([])
     controller = Controller()
     try:
+        info = VideoInfo(Path('C:/source.mp4'), 1920, 1080, 2., 25, 0, None)
+        controller.items = [dict(id=0, path=info.path, name='source.mp4', info=info, status='processing', detail='',
+                                 result='', reviewPath='', reviewCount=0, reviewError='', batch=True)]
+        controller.current = 0
+        controller.update(selected=0, busy=True)
         controller.events = Queue()
         controller.events.put(ProgressEvent('Review', 1, json.dumps(dict(path='C:/review.html',count=3,error='')),kind='review'))
         controller.events.put(ProgressEvent('Done', 1, 'C:/result.mp4', kind='done'))
         controller._drain_events()
+        controller._finish_batch()
         assert controller.state['reviewCount'] == 3
         assert controller.state['reviewPath'] == 'C:/review.html'
         assert controller.state['stage'] == 'Готово'

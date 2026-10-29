@@ -9,7 +9,7 @@ import av
 import numpy as np
 
 from .contracts import ProgressEvent, ReframeError
-from .media import binary, command, frames, raw_probe, check_cancel
+from .media import binary, command, frames, raw_probe, check_cancel, worker_threads
 from .render import Renderer
 
 
@@ -61,7 +61,7 @@ def encode_video(info, plan, path, codec, cancel, emit):
         stream = output.add_stream(codec, rate=Fraction(info.fps).limit_denominator(100000))
         stream.width, stream.height = plan.output_width, plan.output_height
         stream.pix_fmt = "yuv420p"
-        stream.codec_context.thread_count = 2
+        stream.codec_context.thread_count = worker_threads()
         stream.time_base = time_base
         stream.codec_context.time_base = time_base
         stream.options = encoder_options(codec)
@@ -139,7 +139,7 @@ def verify(info, plan, path, cancel):
     # Decode every selected stream before the pipeline publishes the temporary file.
     try:
         command([binary("ffmpeg"), "-hide_banner", "-v", "error", "-xerror",
-                 "-err_detect", "explode", "-threads", "2", "-i", str(path),
+                 "-err_detect", "explode", "-threads", str(worker_threads()), "-i", str(path),
                  "-map", "0:v:0", "-map", "0:a:0?", "-f", "null", "-"], cancel)
     except ReframeError as error:
         raise ReframeError("Проверка результата: не удалось полностью прочитать готовое видео или звук. "

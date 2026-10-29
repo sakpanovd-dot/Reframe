@@ -13,7 +13,7 @@ from .analysis import analyze
 from .contracts import AnalysisResult, Cancelled, ExportRequest, ProgressEvent, ReframeError, Sample
 from .detector import YoloXDetector
 from .export import EXPORTERS, choose_encoder, encode_video, mux_audio, verify
-from .media import check_cancel, probe
+from .media import check_cancel, lower_priority, probe, worker_threads
 from .planner import make_plan, same_aspect
 from .presets import load_presets
 from .local_state import configure_logging
@@ -65,7 +65,7 @@ def cleanup_work(work):
 
 def run(request: ExportRequest, cancel, emit=lambda event: None):
     import cv2
-    cv2.setNumThreads(2)
+    cv2.setNumThreads(worker_threads())
     started = time.monotonic()
     destination = validate_destination(request)
     presets = load_presets()
@@ -153,6 +153,7 @@ def run(request: ExportRequest, cancel, emit=lambda event: None):
 
 def worker(request, cancel, queue):
     configure_logging(Path(__file__).resolve().parent.parent)
+    lower_priority()
     last_emit = 0.
 
     def emit(event):

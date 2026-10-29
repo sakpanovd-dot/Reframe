@@ -26,7 +26,7 @@ if os.environ.get("REFRAME_UI_SMALL"):
     window.setHeight(720)
     controller.update(error="Не удалось обработать видео. Проверьте свободное место и доступ к папке сохранения.")
 if len(sys.argv) > 1:
-    controller.loadSource(QUrl.fromLocalFile(str(Path(sys.argv[1]).resolve())).toString())
+    controller.addSources([QUrl.fromLocalFile(str(Path(arg).resolve())).toString() for arg in sys.argv[1:]])
 
 def capture():
     try:
@@ -45,5 +45,5 @@ def capture():
     finally:
         app.exit(1 if warnings else 0)
 
-QTimer.singleShot(1500, capture)
+QTimer.singleShot(1500 + 1500 * max(0, len(sys.argv) - 2), capture)
 raise SystemExit(app.exec())
