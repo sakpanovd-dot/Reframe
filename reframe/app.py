@@ -24,7 +24,7 @@ from .media import CREATE_FLAGS, probe
 from .pipeline import worker, validate_destination
 from .presets import load_presets
 from .planner import same_aspect
-from .local_state import read_settings, save_settings, configure_logging
+from .local_state import cleanup_stale_jobs, configure_logging, read_settings, remember_job_folder, save_settings
 
 ROOT = Path(__file__).resolve().parent.parent
 VIDEO_FILTER = ("Видео (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.mpg *.mpeg *.ts *.mts *.m2ts *.wmv *.flv *.ogv)"
@@ -322,6 +322,7 @@ class Controller(QObject):
             request = ExportRequest(item["path"], destination, self._state["preset"], self._state["container"],
                                     upscale=self._state["upscale"])
             validate_destination(request)
+            remember_job_folder(ROOT, destination.parent)
         except (ReframeError, OSError) as error:
             item.update(status="error", detail=str(error) if isinstance(error, ReframeError) else
                         "Нет доступа к папке сохранения. Выберите другую папку для результатов.")
@@ -490,6 +491,8 @@ class Controller(QObject):
 def main():
     mp.freeze_support()
     configure_logging(ROOT)
+    # Leftovers of a crash or power loss; a large folder must not delay the window.
+    threading.Thread(target=cleanup_stale_jobs, args=(ROOT,), daemon=True).start()
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QApplication(sys.argv)
     app.setApplicationName("Reframe")

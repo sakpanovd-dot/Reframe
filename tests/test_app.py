@@ -118,6 +118,8 @@ def test_matching_aspect_starts_without_installed_model(tmp_path, monkeypatch, s
         wait_for(app, lambda: not controller.state['busy'])
         assert controller.state['result'] == str(target), controller.state
         assert target.exists()
+        # The job folder is remembered so a crash leftover can be removed on a later start.
+        assert json.loads((tmp_path / 'work' / 'job-folders.json').read_text(encoding='utf-8')) == [str(tmp_path.resolve())]
     finally:
         controller.timer.stop()
 
