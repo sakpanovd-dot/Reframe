@@ -57,10 +57,10 @@ class Controller(QObject):
         super().__init__()
         self._state = {"source": "", "sourceUrl": "", "previewUrl": "", "name": "",
                        "metadata": "", "warning": "", "busy": False, "loading": False,
-                       "stage": "Готов к работе", "detail": "", "progress": 0., "elapsed": "",
+                       "stage": "Готов к работе", "detail": "", "progress": 0., "elapsed": "", "remaining": "",
                        "error": "", "result": "", "preset": "9:16", "container": "mp4",
                        "cancelling": False, "reviewPath": "", "reviewCount": 0, "reviewError": "",
-                       "outputDir": "", "queueText": "", "selected": -1, "remaining": ""}
+                       "outputDir": "", "queueText": "", "selected": -1}
         self.presets = load_presets()
         self.items = []  # dicts: id, path, name, info, status, detail, result, review fields
         self.next_id = 0
