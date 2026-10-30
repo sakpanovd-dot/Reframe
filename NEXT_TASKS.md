@@ -58,3 +58,40 @@ python scripts/review_video.py in.mp4 out.mp4 work/plan.json --output work/revie
 python scripts/face_report.py work/plan.json
 ```
 Синтетический клип: `ffmpeg -f lavfi -i testsrc2=s=1920x1080:r=25:d=5 -f lavfi -i sine=d=5 -c:v libx264 -c:a aac -shortest work/synthetic.mp4`.
+
+## Отчёт временного облачного агента (30 октября 2026)
+
+Пользователь без доступа к ноутбуку запустил облачную сессию Claude Code и попросил выполнять задачи по порядку и отчитываться здесь. Каждая задача — отдельная ветка от `claude/dev` и отдельный PR в `claude/dev`; ничего не сливалось. Отчёт ведётся только в ветке PR #2, чтобы PR не конфликтовали из-за этого файла.
+
+**Общие ограничения облака.**
+- Модель лиц YuNet не скачивается: сетевая политика отдаёт 403 на `github.com/opencv/opencv_zoo/raw/...`; YOLOX скачалась.
+- Поэтому на `claude/dev` и во всех ветках падают 5 тестов («Модель не установлена»): `test_app::test_controller_complete_and_repeat`, `test_app::test_controller_cancel_leaves_no_result`, `test_integration::test_editorial_export_and_review_publication[*]`. На ноутбуке с моделью они должны проходить — прогони полный pytest перед слиянием.
+- PowerShell (pwsh) в облако поставить не разрешили; `.ps1` не запускались.
+- В smoke-скрипте QML при закрытии окна иногда (и на `claude/dev`) печатаются `TypeError: Cannot read property ... of null` — шум уничтожения движка, «QML warnings: []».
+
+### PR #2 — задача 1, `update.ps1` (ветка `claude/temp-agent-next-tasks-wkeoja`)
+- Новый `update.ps1`. По шагам:
+  1. Проверяет наличие Git и окружения (`-EnvironmentPath`, как у setup).
+  2. Проверяет, что Reframe не запущен — ищет процесс из папки окружения.
+  3. Проверяет, что отслеживаемые файлы не изменены (`git status --porcelain --untracked-files=no`; неотслеживаемые не мешают).
+  4. Проверяет, что у ветки есть upstream.
+  5. Выполняет `git pull --ff-only` → `pip install -r requirements-lock.txt` → `pip install --no-deps -e .` → `pip check` → `download_model.py`.
+  6. Выводит «Готово» или красное сообщение с советом; при ошибке `exit 1`.
+- В скрипте нет reset/clean/stash/удалений. Файл в UTF-8 с BOM и CRLF.
+- Тест `test_startup::test_update_script_is_safe_and_ordered` проверяет BOM, порядок шагов, запрещённые команды и баланс скобок.
+- README: абзац «Обновление».
+- **Проверить на Windows:** обычное обновление; «уже последняя версия»; изменённый tracked-файл; открытый Reframe; нет сети. Особенно — что `Test-Git` (локальный `ErrorActionPreference='Continue'` + `2>&1 | Out-Null`) корректно глушит stderr git в Windows PowerShell 5.1.
+
+### PR #3 — задача 2, размер 1080×1920 (ветка `claude/output-1080x1920`)
+- `planner.dimensions(..., upscale=False)`: при `upscale` выход равен размеру пресета, кроп не меняется.
+- Флаг передаётся по цепочке: `ExportRequest.upscale` → `pipeline` → оба планировщика; в CLI — `--upscale`.
+- Рендер: полные кадры (graphic/fit) увеличиваются не больше, чем кроп (`max(1, output/crop)`); по умолчанию поведение прежнее.
+- GUI: строка «Размер: [Исходный] [1080×1920]» под «Тип файла», сохраняется в `settings.json` как `upscale`, по умолчанию выключено. Подпись второй кнопки — размер текущего пресета.
+- Тесты:
+  - размеры 1080p/4K в обоих режимах;
+  - рендер всех пресетов;
+  - editorial-план;
+  - интеграционный экспорт;
+  - сохранение настройки.
+- Smoke 1180×790 и 980×720 просмотрен: строка помещается, статус виден.
+- **Проверить на Windows:** вид строки с Segoe UI; реальный 1080p-ролик в режиме 1080×1920 (editorial целиком в облаке не запускался из-за модели лиц); качество увеличения (INTER_CUBIC) глазами монтажёра.
