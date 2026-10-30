@@ -17,6 +17,9 @@ ApplicationWindow {
     property color accent: "#C3F47C"
     property var queue: controller.queue
     property int waiting: queue.filter(function(item) { return item.status === "waiting" }).length
+    // Small windows: shorter format tiles so every option row stays visible.
+    property bool compactOptions: optionsScroll.availableHeight < 440
+    property int iconSize: compactOptions ? 22 : 34
     property var format: controller.formats.find(function(item) { return item.id === s.preset })
     onClosing: function(close) { close.accepted = controller.requestClose() }
 
@@ -203,7 +206,7 @@ ApplicationWindow {
                             delegate: Button {
                                 id: formatButton
                                 required property var modelData
-                                Layout.fillWidth: true; Layout.preferredHeight: 78
+                                Layout.fillWidth: true; Layout.preferredHeight: window.compactOptions ? 62 : 78
                                 enabled: !window.s.busy
                                 onClicked: controller.selectPreset(modelData.id)
                                 Accessible.name: modelData.label + " " + modelData.description
@@ -215,11 +218,11 @@ ApplicationWindow {
                                 contentItem: ColumnLayout {
                                     spacing: 8
                                     Item {
-                                        Layout.fillWidth: true; Layout.preferredHeight: 34
+                                        Layout.fillWidth: true; Layout.preferredHeight: window.iconSize
                                         Rectangle {
                                             anchors.centerIn: parent
-                                            width: formatButton.modelData.ratio >= 1 ? 34 : 34 * formatButton.modelData.ratio
-                                            height: formatButton.modelData.ratio >= 1 ? 34 / formatButton.modelData.ratio : 34
+                                            width: formatButton.modelData.ratio >= 1 ? window.iconSize : window.iconSize * formatButton.modelData.ratio
+                                            height: formatButton.modelData.ratio >= 1 ? window.iconSize / formatButton.modelData.ratio : window.iconSize
                                             radius: 3; color: "transparent"; border.width: 2
                                             border.color: window.s.preset === formatButton.modelData.id ? window.accent : "#A5ABB6"
                                         }
@@ -283,9 +286,9 @@ ApplicationWindow {
                             ToolTip.visible: hovered; ToolTip.text: "Сохранять рядом с исходником"
                         }
                     }
-                    Rectangle { visible: optionsScroll.availableHeight >= 360; Layout.fillWidth: true; height: 1; color: "#30343C" }
-                    Text { visible: optionsScroll.availableHeight >= 360; text: "Всё остальное — автоматически"; color: "#D7DAE0"; font.weight: Font.DemiBold }
-                    Text { visible: optionsScroll.availableHeight >= 360; Layout.fillWidth: true; text: "16:9 → 9:16 — вертикальная обрезка для монтажа. Спорные интервалы отмечаем в отчёте. Без устойчивого объекта сохраняем полный кадр."; color: window.muted; wrapMode: Text.WordWrap; font.pixelSize: 12; lineHeight: 1.35 }
+                    Rectangle { visible: optionsScroll.availableHeight >= 520; Layout.fillWidth: true; height: 1; color: "#30343C" }
+                    Text { visible: optionsScroll.availableHeight >= 520; text: "Всё остальное — автоматически"; color: "#D7DAE0"; font.weight: Font.DemiBold }
+                    Text { visible: optionsScroll.availableHeight >= 520; Layout.fillWidth: true; text: "16:9 → 9:16 — вертикальная обрезка для монтажа: следим за героем, диалоги показываем по очереди. Спорные интервалы отмечаем в отчёте."; color: window.muted; wrapMode: Text.WordWrap; font.pixelSize: 12; lineHeight: 1.35 }
                 }
                 }
                 ColumnLayout {

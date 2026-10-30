@@ -104,7 +104,7 @@ def cleanup_stale_jobs(root: Path, now: float | None = None) -> list[Path]:
             continue
         for directory in candidates:
             try:
-                if not JOB_DIRECTORY.fullmatch(directory.name) or directory.is_symlink() or directory.is_junction() \
+                if not JOB_DIRECTORY.fullmatch(directory.name) or directory.is_symlink() or getattr(directory, "is_junction", lambda: False)() \
                         or not directory.is_dir() or now - _last_activity(directory) < STALE_AFTER:
                     continue
                 shutil.rmtree(directory)

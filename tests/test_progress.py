@@ -63,3 +63,11 @@ def test_unknown_or_cancelled_stages_show_nothing():
 ])
 def test_describe(seconds, text):
     assert describe(seconds) == text
+
+
+def test_render_ratio_follows_output_size():
+    from reframe.progress import render_ratio
+    # Laptop measurements: 594x1056 -> 0.34, 1080x1920 -> 0.88-0.98 of the analysis time.
+    assert .2 <= render_ratio(594, 1056) <= .4
+    assert .8 <= render_ratio(1080, 1920) <= 1.
+    assert render_ratio(64, 64) == .2 and render_ratio(4000, 4000) == 1.5

@@ -23,8 +23,8 @@ from .export import EXPORTERS
 from .media import CREATE_FLAGS, probe
 from .pipeline import worker, validate_destination
 from .presets import load_presets
-from .progress import RemainingTime, describe
-from .planner import same_aspect
+from .progress import RemainingTime, describe, render_ratio
+from .planner import dimensions, same_aspect
 from .local_state import cleanup_stale_jobs, configure_logging, read_settings, remember_job_folder, save_settings
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -338,7 +338,12 @@ class Controller(QObject):
         self.process = self.context.Process(target=worker, args=(request, self.cancel_event, self.events))
         self.terminal_received = False
         self.started = time.monotonic()
-        self.remaining = RemainingTime(self.started)
+        try:
+            _, _, out_w, out_h = dimensions(item["info"].width, item["info"].height,
+                                            self.presets[self._state["preset"]], self._state["upscale"])
+            self.remaining = RemainingTime(self.started, render_ratio(out_w, out_h))
+        except ReframeError:
+            self.remaining = RemainingTime(self.started)
         self.process.start()
         self._update_queue_text()
         self.update(cancelling=False, stage="Подготовка", detail=item["name"], progress=0, elapsed="0:00")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 ANALYSIS, PLANNING, RENDER = "Анализ видео", "Планирование кадра", "Создание видео"
 AFTER_RENDER = {"Сохранение звука", "Проверка результата"}
-# TESTING.md (laptop CPU): rendering takes about 0.2-0.6 of the analysis time.
+# Fallback render/analysis time ratio when the output size is unknown.
 RENDER_PER_ANALYSIS = .5
 # Audio muxing and full verification after rendering, as a share of render time.
 TAIL = .05
@@ -12,8 +12,18 @@ MIN_STAGE = 3.  # seconds of a stage before its own speed is trusted
 SMOOTHING = .05  # per update (10 per second): the shown value settles in ~2 s
 
 
+def render_ratio(output_width: int, output_height: int) -> float:
+    """Render time per analysis time; rendering cost follows the output pixel count.
+
+    Laptop CPU, 30 s clips: 1080p -> 594x1056 0.34; 1080p -> 1080x1920 0.88;
+    4K -> 1080x1920 0.98 (analysis always works on 640 px frames).
+    """
+    return min(1.5, max(.2, .45 * output_width * output_height / 1e6))
+
+
 class RemainingTime:
-    def __init__(self, started: float):
+    def __init__(self, started: float, render_per_analysis: float = RENDER_PER_ANALYSIS):
+        self.render_per_analysis = render_per_analysis
         self.started = started
         self.stage, self.since, self.progress = None, started, 0.
         self.render_expected = None  # seconds, known once analysis speed is
@@ -33,7 +43,7 @@ class RemainingTime:
         if self.stage == ANALYSIS:
             if not measured:
                 return None
-            self.render_expected = stage_total * RENDER_PER_ANALYSIS
+            self.render_expected = stage_total * self.render_per_analysis
             return stage_total - spent + self.render_expected * (1 + TAIL)
         if self.stage == RENDER:
             if measured:
