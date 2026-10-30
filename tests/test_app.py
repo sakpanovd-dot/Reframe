@@ -1,4 +1,5 @@
 """Exercise the real controller and spawned worker without manual dialogs."""
+import json
 import time
 import logging
 from pathlib import Path
@@ -133,6 +134,30 @@ def test_invalid_settings_use_defaults(tmp_path, monkeypatch, contents):
         assert controller.state['container'] == 'mp4'
     finally:
         controller.timer.stop()
+
+
+def test_output_size_setting_is_saved(tmp_path, monkeypatch):
+    import reframe.app as app_module
+    monkeypatch.setattr(app_module, 'ROOT', tmp_path)
+    app = QApplication.instance() or QApplication([])
+    controller = Controller()
+    try:
+        assert controller.state['upscale'] is False
+        controller.setUpscale(True)
+    finally:
+        controller.timer.stop()
+    assert json.loads((tmp_path / 'settings.json').read_text(encoding='utf-8'))['upscale'] is True
+    restored = Controller()
+    try:
+        assert restored.state['upscale'] is True
+    finally:
+        restored.timer.stop()
+    (tmp_path / 'settings.json').write_text('{"upscale": "yes"}', encoding='utf-8')
+    invalid = Controller()
+    try:
+        assert invalid.state['upscale'] is False
+    finally:
+        invalid.timer.stop()
 
 
 def make_clip(path, seconds=.4):

@@ -54,7 +54,8 @@ class Renderer:
             crop = image[y:y + ch, x:x + cw]
             interpolation = cv2.INTER_AREA if cw >= size[0] else cv2.INTER_CUBIC
             return cv2.resize(crop, size, interpolation=interpolation)
-        fit = min(size[0] / image.shape[1], size[1] / image.shape[0], 1.)
+        # Full frames are enlarged only as much as crops are (upscale mode), never by default.
+        fit = min(size[0] / image.shape[1], size[1] / image.shape[0], max(1., size[0] / p.crop_width))
         fw, fh = max(1, round(image.shape[1] * fit)), max(1, round(image.shape[0] * fit))
         # When the foreground covers the output, the background is invisible.
         if (fw, fh) == size:
@@ -75,7 +76,7 @@ class Renderer:
             background = cv2.resize(small, size, interpolation=cv2.INTER_LINEAR)
             background[y:y + fh, x:x + fw] = foreground
             return background
-        # Blur a small cover image, then enlarge; the foreground is never enlarged.
+        # Blur a small cover image, then enlarge; the foreground keeps the fit above.
         scale = max(size[0] / image.shape[1], size[1] / image.shape[0])
         cover_w, cover_h = round(image.shape[1] * scale), round(image.shape[0] * scale)
         tiny = cv2.resize(image, (max(1, cover_w // 12), max(1, cover_h // 12)))

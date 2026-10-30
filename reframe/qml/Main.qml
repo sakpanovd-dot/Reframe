@@ -17,6 +17,7 @@ ApplicationWindow {
     property color accent: "#C3F47C"
     property var queue: controller.queue
     property int waiting: queue.filter(function(item) { return item.status === "waiting" }).length
+    property var format: controller.formats.find(function(item) { return item.id === s.preset })
     onClosing: function(close) { close.accepted = controller.requestClose() }
 
     component ActionButton: Button {
@@ -243,6 +244,25 @@ ApplicationWindow {
                                 leftPadding: 12; rightPadding: 12
                                 onClicked: controller.selectContainer(modelData)
                             }
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 6
+                        Text { text: "Размер"; color: "#D7DAE0" }
+                        Item { Layout.fillWidth: true }
+                        ActionButton {
+                            objectName: "sizeSource"
+                            text: "Исходный"; primary: !window.s.upscale
+                            enabled: !window.s.busy; implicitHeight: 34; leftPadding: 8; rightPadding: 8
+                            onClicked: controller.setUpscale(false)
+                            ToolTip.visible: hovered; ToolTip.text: "Без увеличения: размер зависит от исходника (из 1080p в 9:16 — 594×1056)"
+                        }
+                        ActionButton {
+                            objectName: "sizePreset"
+                            text: window.format ? window.format.size : ""; primary: !!window.s.upscale
+                            enabled: !window.s.busy; implicitHeight: 34; leftPadding: 8; rightPadding: 8
+                            onClicked: controller.setUpscale(true)
+                            ToolTip.visible: hovered; ToolTip.text: "Всегда полный размер формата; маленький исходник увеличивается"
                         }
                     }
                     RowLayout {

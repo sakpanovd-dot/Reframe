@@ -59,7 +59,7 @@ class Controller(QObject):
                        "stage": "Готов к работе", "detail": "", "progress": 0., "elapsed": "",
                        "error": "", "result": "", "preset": "9:16", "container": "mp4",
                        "cancelling": False, "reviewPath": "", "reviewCount": 0, "reviewError": "",
-                       "outputDir": "", "queueText": "", "selected": -1}
+                       "outputDir": "", "queueText": "", "selected": -1, "upscale": False}
         self.presets = load_presets()
         self.items = []  # dicts: id, path, name, info, status, detail, result, review fields
         self.next_id = 0
@@ -80,6 +80,8 @@ class Controller(QObject):
             self._state["preset"] = saved["preset"]
         if isinstance(saved.get("container"), str) and saved["container"] in EXPORTERS:
             self._state["container"] = saved["container"]
+        if isinstance(saved.get("upscale"), bool):
+            self._state["upscale"] = saved["upscale"]
         if isinstance(saved.get("outputDir"), str) and saved["outputDir"] and Path(saved["outputDir"]).is_dir():
             self._state["outputDir"] = saved["outputDir"]
         self.inspected.connect(self._inspection_finished)
@@ -108,7 +110,7 @@ class Controller(QObject):
     @Property("QVariantList", constant=True)
     def formats(self):
         return [{"id": p.id, "label": p.title, "description": p.description,
-                 "ratio": p.ratio} for p in self.presets.values()]
+                 "ratio": p.ratio, "size": f"{p.width}×{p.height}"} for p in self.presets.values()]
 
     @Property("QStringList", constant=True)
     def containers(self):
@@ -252,6 +254,13 @@ class Controller(QObject):
         if not self._state["busy"] and value.lower() in EXPORTERS:
             self.update(container=value.lower())
 
+    @Slot(bool)
+    def setUpscale(self, value):
+        """Output size: as large as the source allows (default) or always the preset size."""
+        if not self._state["busy"]:
+            self.update(upscale=bool(value))
+            self._save_settings()
+
     @Slot()
     def chooseOutputFolder(self):
         folder = QFileDialog.getExistingDirectory(None, "Папка для результатов", self._state["outputDir"])
@@ -266,7 +275,7 @@ class Controller(QObject):
 
     def _save_settings(self):
         save_settings(ROOT / "settings.json", {"preset": self._state["preset"], "container": self._state["container"],
-                                               "outputDir": self._state["outputDir"]})
+                                               "outputDir": self._state["outputDir"], "upscale": self._state["upscale"]})
 
     def _update_queue_text(self):
         total = sum(item["status"] in ("waiting", "processing") for item in self.items)
@@ -310,7 +319,8 @@ class Controller(QObject):
         try:
             destination = output_path(item["path"], self._state["preset"], self._state["container"],
                                       self._state["outputDir"], reserved)
-            request = ExportRequest(item["path"], destination, self._state["preset"], self._state["container"])
+            request = ExportRequest(item["path"], destination, self._state["preset"], self._state["container"],
+                                    upscale=self._state["upscale"])
             validate_destination(request)
         except (ReframeError, OSError) as error:
             item.update(status="error", detail=str(error) if isinstance(error, ReframeError) else

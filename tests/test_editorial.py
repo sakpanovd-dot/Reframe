@@ -20,6 +20,16 @@ def test_primary_format_only():
     assert not applies(1080, 1920, presets['9:16'])
 
 
+def test_upscale_keeps_crop_and_enlarges_output():
+    samples = [Sample(i*.2, 0, [Detection((50+i*8, 60, 100+i*8, 310), .9, 0, 1)]) for i in range(10)]
+    analysis = AnalysisResult(1920, 1080, 2.2, samples)
+    normal = make_editorial_plan(analysis, load_presets()['9:16'])
+    enlarged = make_editorial_plan(analysis, load_presets()['9:16'], upscale=True)
+    assert (normal.output_width, normal.output_height) == (594, 1056)
+    assert (enlarged.output_width, enlarged.output_height) == (1080, 1920)
+    assert enlarged.keyframes == normal.keyframes and enlarged.crop_width == normal.crop_width
+
+
 def test_scene_lookahead_crops_immediately_and_keeps_moving_subject():
     samples = [Sample(i*.2, 0, [] if i == 0 else [Detection((50+i*8, 60, 100+i*8, 310), .9, 0, 1)]) for i in range(20)]
     result = plan(samples)

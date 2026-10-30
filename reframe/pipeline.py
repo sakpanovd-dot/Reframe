@@ -90,7 +90,7 @@ def run(request: ExportRequest, cancel, emit=lambda event: None):
             analysis = analyze(info, detector, cancel, report, faces)
         report(ProgressEvent("Планирование кадра", 1))
         editorial = not request.fit_only and applies(info.width, info.height, presets[request.preset])
-        plan = (make_editorial_plan if editorial else make_plan)(analysis, presets[request.preset])
+        plan = (make_editorial_plan if editorial else make_plan)(analysis, presets[request.preset], request.upscale)
         review = intervals(plan, info.duration) if editorial else []
         if request.diagnostics:
             validate_destination(replace(request, destination=destination))
