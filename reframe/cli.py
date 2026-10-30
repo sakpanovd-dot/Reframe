@@ -15,10 +15,11 @@ def main():
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--fit-only", action="store_true", help="Диагностика экспорта без модели")
     parser.add_argument("--diagnostics", type=Path)
+    parser.add_argument("--upscale", action="store_true", help="Размер результата как у пропорций (1080×1920), даже из 1080p")
     args = parser.parse_args()
     request = ExportRequest(args.source, args.destination, args.preset,
                             args.destination.suffix.lower().lstrip("."), args.overwrite,
-                            args.cpu, args.fit_only, args.diagnostics)
+                            args.cpu, args.fit_only, args.diagnostics, args.upscale)
     run(request, multiprocessing.Event(), lambda e: print(f"{e.stage}: {e.progress:.0%} {e.detail}", flush=True))
 
 

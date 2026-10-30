@@ -1,4 +1,5 @@
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +8,7 @@ import pytest
 from reframe.analysis import Tracker
 from reframe.contracts import AnalysisResult, Detection, ExportRequest, Sample, ReframeError
 from reframe.pipeline import validate_destination
-from reframe.planner import make_plan
+from reframe.planner import dimensions, make_plan
 from reframe.presets import load_presets
 from reframe.render import Renderer
 
@@ -82,6 +83,33 @@ def test_dimensions_no_upscale_exact_ratio(preset):
     assert not plan.output_width % 2 and not plan.output_height % 2
     rendered = Renderer(plan).frame(np.full((240, 320, 3), 100, np.uint8), 0)
     assert rendered.shape == (plan.output_height, plan.output_width, 3)
+
+
+@pytest.mark.parametrize("source, upscale, expected", [
+    ((1920, 1080), False, (594, 1056, 594, 1056)),
+    ((1920, 1080), True, (594, 1056, 1080, 1920)),
+    ((3840, 2160), False, (1206, 2144, 1080, 1920)),
+    ((3840, 2160), True, (1206, 2144, 1080, 1920)),
+])
+def test_dimensions_output_size_modes(source, upscale, expected):
+    assert dimensions(*source, load_presets()["9:16"], upscale) == expected
+
+
+@pytest.mark.parametrize("preset", list(load_presets()))
+def test_upscale_renders_preset_size_and_enlarges_full_frame(preset):
+    p = load_presets()[preset]
+    plan = make_plan(scene([Sample(0, 0, [])], 320, 240), p, upscale=True)
+    assert (plan.output_width, plan.output_height) == (p.width, p.height)
+    image = np.full((240, 320, 3), 100, np.uint8)
+    for mode in ("crop", "graphic", "fit"):
+        plan.keyframes[0] = replace(plan.keyframes[0], mode=mode)
+        rendered = Renderer(plan).frame(image, 0)
+        assert rendered.shape == (p.height, p.width, 3)
+    # Full frames are enlarged like crops, not left as a small picture on a dimmed background.
+    fit = Renderer(plan).frame(np.full((240, 320, 3), 255, np.uint8), 0)
+    bright = (fit.min(axis=2) > 250).mean()
+    expected = min(p.width / 320, p.height / 240, p.width / plan.crop_width) ** 2 * 320 * 240 / (p.width * p.height)
+    assert bright == pytest.approx(expected, abs=.02)
 
 
 def test_new_preset_without_algorithm_changes(tmp_path):

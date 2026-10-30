@@ -43,8 +43,12 @@ def unexplained_activity(nearby, selected, width, height):
     return result
 
 
-def dimensions(width, height, preset):
-    # Exact aspect ratio AND even dimensions; never enlarge the crop.
+def dimensions(width, height, preset, upscale=False):
+    """Crop and output sizes with the exact aspect ratio and even dimensions.
+
+    By default the crop is never enlarged. With upscale the output is always the
+    preset size (e.g. 1080x1920), so a 1080p source gives a full-size vertical.
+    """
     divisor = gcd(preset.width, preset.height)
     a, b = preset.width // divisor, preset.height // divisor
     step = 2 if a % 2 or b % 2 else 1
@@ -53,13 +57,13 @@ def dimensions(width, height, preset):
         from .contracts import ReframeError
         raise ReframeError("Исходное видео слишком маленькое для выбранных пропорций.")
     cw, ch = a * k, b * k
-    out_k = min(k, divisor) // step * step
+    out_k = (divisor if upscale else min(k, divisor)) // step * step
     return cw, ch, a * out_k, b * out_k
 
 
-def make_plan(analysis, preset) -> ReframePlan:
+def make_plan(analysis, preset, upscale=False) -> ReframePlan:
     w, h = analysis.width, analysis.height
-    cw, ch, ow, oh = dimensions(w, h, preset)
+    cw, ch, ow, oh = dimensions(w, h, preset, upscale)
     keys = []
     same_ratio = abs(w / h - preset.ratio) < .005
     for scene, iterator in groupby(analysis.samples, lambda s: s.scene):

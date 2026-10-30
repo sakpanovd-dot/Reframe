@@ -274,9 +274,9 @@ def panel_keys(samples, w, h, cw, ch):
     return keys
 
 
-def make_editorial_plan(analysis, preset):
+def make_editorial_plan(analysis, preset, upscale=False):
     w, h = analysis.width, analysis.height
-    cw, ch, ow, oh = dimensions(w, h, preset)
+    cw, ch, ow, oh = dimensions(w, h, preset, upscale)
     keys = []
     for scene, iterator in groupby(analysis.samples, lambda s: s.scene):
         samples = list(iterator)

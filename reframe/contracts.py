@@ -89,6 +89,7 @@ class ExportRequest:
     cpu_only: bool = False
     fit_only: bool = False  # diagnostic CLI; not exposed in the product UI
     diagnostics: Path | None = None
+    upscale: bool = False  # output at the preset size (1080x1920) even from smaller sources
 
 
 @dataclass(frozen=True)

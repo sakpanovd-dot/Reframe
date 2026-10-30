@@ -36,6 +36,16 @@ def test_all_exports_with_audio(media, preset, container):
         assert len(list(video.decode(video=0))) == 30
 
 
+@pytest.mark.parametrize("upscale, size", [(False, (90, 160)), (True, (1080, 1920))])
+def test_upscale_export_size(media, upscale, size):
+    folder, source = media
+    target = folder / f"upscale-{upscale}.mp4"
+    run(ExportRequest(source, target, cpu_only=True, fit_only=True, upscale=upscale), threading.Event())
+    info = probe(target)
+    assert (info.width, info.height) == size
+    assert info.audio_index is not None and abs(info.duration - 1.2) <= .04
+
+
 @pytest.mark.parametrize('outcome', ['success', 'report_denied', 'cancelled'])
 def test_editorial_export_and_review_publication(media, monkeypatch, outcome):
     import json
