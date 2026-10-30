@@ -23,6 +23,7 @@ from .export import EXPORTERS
 from .media import CREATE_FLAGS, probe
 from .pipeline import worker, validate_destination
 from .presets import load_presets
+from .progress import RemainingTime, describe
 from .planner import same_aspect
 from .local_state import read_settings, save_settings, configure_logging
 
@@ -59,7 +60,7 @@ class Controller(QObject):
                        "stage": "Готов к работе", "detail": "", "progress": 0., "elapsed": "",
                        "error": "", "result": "", "preset": "9:16", "container": "mp4",
                        "cancelling": False, "reviewPath": "", "reviewCount": 0, "reviewError": "",
-                       "outputDir": "", "queueText": "", "selected": -1}
+                       "outputDir": "", "queueText": "", "selected": -1, "remaining": ""}
         self.presets = load_presets()
         self.items = []  # dicts: id, path, name, info, status, detail, result, review fields
         self.next_id = 0
@@ -71,6 +72,7 @@ class Controller(QObject):
         self.cancel_event = None
         self.terminal_received = False
         self.started = 0.
+        self.remaining = None
         self.close_after_cancel = False
         self.stop_requested = False
         self.probe_cancel = threading.Event()
@@ -325,12 +327,15 @@ class Controller(QObject):
         self.process = self.context.Process(target=worker, args=(request, self.cancel_event, self.events))
         self.terminal_received = False
         self.started = time.monotonic()
+        self.remaining = RemainingTime(self.started)
         self.process.start()
         self._update_queue_text()
         self.update(cancelling=False, stage="Подготовка", detail=item["name"], progress=0, elapsed="0:00")
 
     def _finish_batch(self):
         self.current = None
+        self.remaining = None
+        self.update(remaining="")
         batch = [i for i in self.items if i.get("batch")]
         done = sum(i["status"] == "done" for i in batch)
         failed = sum(i["status"] == "error" for i in batch)
@@ -392,9 +397,11 @@ class Controller(QObject):
     def poll(self):
         if self.process is None:
             return
-        elapsed = round(time.monotonic() - self.started)
-        self.update(elapsed=f"{elapsed // 60}:{elapsed % 60:02d}")
+        now = time.monotonic()
+        elapsed = round(now - self.started)
         self._drain_events()
+        estimate = None if self._state["cancelling"] or self.remaining is None else self.remaining.seconds(now)
+        self.update(elapsed=f"{elapsed // 60}:{elapsed % 60:02d}", remaining=describe(estimate))
         if not self.process.is_alive():
             self.process.join()
             self._drain_events()
@@ -420,6 +427,8 @@ class Controller(QObject):
             except Empty:
                 break
             if event.kind == "progress":
+                if self.remaining is not None:
+                    self.remaining.update(event.stage, event.progress, time.monotonic())
                 if not self._state["cancelling"]:
                     self.update(stage=event.stage, progress=event.progress,
                                 detail=item["name"] if item and self._state["queueText"] else event.detail)

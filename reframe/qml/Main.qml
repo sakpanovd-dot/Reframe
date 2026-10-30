@@ -292,6 +292,7 @@ ApplicationWindow {
                     Text { text: window.s.stage; color: "#EDF0F4"; font.weight: Font.DemiBold }
                     Text { visible: !!window.s.queueText; text: window.s.queueText; color: window.accent; font.pixelSize: 12 }
                     Text { visible: window.s.busy; text: window.s.elapsed; color: window.muted; font.pixelSize: 12 }
+                    Text { objectName: "remainingText"; visible: window.s.busy && !!window.s.remaining; text: "· " + window.s.remaining; color: window.muted; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
                     Text { visible: window.s.busy; text: Math.round(window.s.progress * 100) + "%"; color: window.accent }
                     ActionButton { visible: window.s.busy; text: "Отмена"; implicitHeight: 32; enabled: !window.s.cancelling; onClicked: controller.cancel() }
